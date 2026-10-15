@@ -266,6 +266,11 @@ cd firmware/piano-coach/tests/mini_preview
 cargo +stable run --release --target x86_64-unknown-linux-gnu
 ```
 
+README screenshots (`doc/images/`): `tools/make_screenshots.sh` renders the
+Tab5 pages from the real library (`tests/ui_preview`, bin `shots`: library,
+search, globe, Learn, three sheet styles, settings) and a collage of the
+minimal UI (`tests/mini_preview`).
+
 `piano-core/examples/memprobe.rs` prints the heap a song needs (parse
 peak, song, engine) — the numbers behind the round board's note limit.
 
