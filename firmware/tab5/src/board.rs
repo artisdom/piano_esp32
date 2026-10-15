@@ -280,6 +280,37 @@ pub fn set_backlight(percent: i32) {
     }
 }
 
+/// True power-off through the Tab5's hardware power latch: pulsing
+/// POWEROFF_GEN (expander 0x44 P4, "PWROFF_PULSE" in the schematic, per
+/// M5Tab5-UserDemo `bsp_generate_poweroff_signal` and herdline) drops the
+/// power path; the side power button turns the Tab5 back on. If we are
+/// still running afterwards (an external supply holds the rail up), park
+/// in deep sleep with the screen, USB-A and C6 off — the reset or power
+/// button restarts it.
+pub fn power_off() -> ! {
+    info!("power off: pulsing the Tab5 power latch");
+    unsafe {
+        set_backlight(0);
+        let _ = bsp::bsp_feature_enable(bsp::bsp_feature_t_BSP_FEATURE_LCD, false);
+        let _ = bsp::bsp_feature_enable(bsp::bsp_feature_t_BSP_FEATURE_USB, false);
+        let _ = bsp::bsp_feature_enable(bsp::bsp_feature_t_BSP_FEATURE_WIFI, false);
+        std::thread::sleep(Duration::from_millis(120));
+        let exp1 = bsp::bsp_io_expander1_init();
+        if !exp1.is_null() {
+            const POWEROFF_GEN: u32 = 1 << 4;
+            for _ in 0..3 {
+                let _ = bsp::esp_io_expander_set_level(exp1, POWEROFF_GEN, 1);
+                std::thread::sleep(Duration::from_millis(100));
+                let _ = bsp::esp_io_expander_set_level(exp1, POWEROFF_GEN, 0);
+                std::thread::sleep(Duration::from_millis(100));
+            }
+        }
+        warn!("power off: still powered (external supply) — entering deep sleep");
+        std::thread::sleep(Duration::from_millis(50));
+        esp_idf_svc::sys::esp_deep_sleep_start();
+    }
+}
+
 pub fn reboot() -> ! {
     unsafe { esp_idf_svc::sys::esp_restart() }
 }

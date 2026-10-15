@@ -635,6 +635,24 @@ pub fn run(ctx: Ctx) -> anyhow::Result<()> {
         });
     }
 
+    // ---- shut down --------------------------------------------------------
+    {
+        let (w, c) = (ui.as_weak(), ctx.cmds.clone());
+        ui.global::<AppVM>().on_shutdown(move || {
+            let ui = w.unwrap();
+            ui.global::<AppVM>().set_shutting_down(true);
+            info!("ui: shut down requested");
+            // Stop playback and clear every LED, give the transport time to
+            // deliver it (USB pacing / BLE write), then cut power. The
+            // shutting-down screen paints meanwhile.
+            let _ = c.send(Cmd::AllOff);
+            std::thread::spawn(|| {
+                std::thread::sleep(Duration::from_millis(700));
+                board::power_off();
+            });
+        });
+    }
+
     // ---- show -------------------------------------------------------------
     ui.show().map_err(|e| anyhow::anyhow!("slint show: {e}"))?;
     window.set_size(PhysicalSize::new(board::WINDOW_WIDTH, board::WINDOW_HEIGHT));

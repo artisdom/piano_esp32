@@ -2,7 +2,7 @@ import "fonts/NotoSansSC-Piano.otf";
 import { Glyphs } from "glyphs.slint";
 import { Theme } from "theme.slint";
 import { Icon } from "icons.slint";
-import { Segmented, Chip } from "widgets.slint";
+import { Segmented, Chip, Button, Card } from "widgets.slint";
 import { AppVM, LibraryVM, PlayerVM, SettingsVM, LibEntry, KeyView, RollNote } from "state.slint";
 import { LibraryPage } from "library.slint";
 import { PlayerPage, Geometry } from "player.slint";
@@ -57,10 +57,16 @@ export component AppWindow inherits Window {
                 Rectangle { horizontal-stretch: 1; }
                 Chip {
                     y: (parent.height - self.height) / 2;
-                    width: 300px;
+                    width: 280px;
                     icon: "usb";
                     tone: AppVM.connected ? Theme.ok : Theme.faint;
                     text: AppVM.device;
+                }
+                Button {
+                    y: (parent.height - self.height) / 2;
+                    icon: "power";
+                    width: 56px;
+                    clicked => { AppVM.confirm-shutdown = true; }
                 }
             }
         }
@@ -87,6 +93,55 @@ export component AppWindow inherits Window {
             font-size: Theme.fs;
             vertical-alignment: center;
             horizontal-alignment: center;
+        }
+    }
+
+    // Shut-down confirmation.
+    if AppVM.confirm-shutdown && !AppVM.shutting-down: Rectangle {
+        background: #000000b0;
+        TouchArea { clicked => { AppVM.confirm-shutdown = false; } }
+        Card {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            width: 560px;
+            height: 280px;
+            TouchArea { } // swallow taps on the dialog itself
+            VerticalLayout {
+                padding: 32px;
+                spacing: 16px;
+                Text { text: "Shut down the Tab5?"; font-size: Theme.fs-xl; font-weight: 700; color: Theme.text; }
+                Text {
+                    text: "The piano's lights are switched off first. Press the Tab5's side power button to turn it on again.";
+                    font-size: Theme.fs;
+                    color: Theme.dim;
+                    wrap: word-wrap;
+                }
+                Rectangle { vertical-stretch: 1; }
+                HorizontalLayout {
+                    spacing: 16px;
+                    alignment: end;
+                    Button {
+                        text: "Cancel";
+                        clicked => { AppVM.confirm-shutdown = false; }
+                    }
+                    Button {
+                        text: "Shut down";
+                        icon: "power";
+                        primary: true;
+                        clicked => { AppVM.shutdown(); }
+                    }
+                }
+            }
+        }
+    }
+    if AppVM.shutting-down: Rectangle {
+        background: Theme.bg;
+        TouchArea { }
+        VerticalLayout {
+            alignment: center;
+            spacing: 12px;
+            Icon { name: "power"; size: 64px; tint: Theme.accent; x: (parent.width - self.width) / 2; }
+            Text { text: "Shutting down…"; font-size: Theme.fs-xl; color: Theme.text; horizontal-alignment: center; }
         }
     }
 

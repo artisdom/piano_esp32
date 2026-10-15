@@ -36,6 +36,10 @@ export global AppVM {
     in property <string> toast: "";
     in property <string> version: "";
     in property <string> transport: "USB";
+    // Shut-down confirmation dialog and the "shutting down" screen.
+    in-out property <bool> confirm-shutdown;
+    in property <bool> shutting-down;
+    callback shutdown();
 }
 
 export global LibraryVM {

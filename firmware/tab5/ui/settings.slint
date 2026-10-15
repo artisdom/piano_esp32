@@ -120,10 +120,18 @@ export component SettingsPage inherits Rectangle {
                     Info { label: "microSD"; value: AppVM.sd-status; }
                     Info { label: "Songs folder"; value: SettingsVM.library-root; }
                     Info { label: "Firmware"; value: AppVM.version; }
-                    Button {
-                        text: "Rescan SD card";
-                        icon: "sd";
-                        clicked => { SettingsVM.rescan(); }
+                    HorizontalLayout {
+                        spacing: 12px;
+                        Button {
+                            text: "Rescan SD card";
+                            icon: "sd";
+                            clicked => { SettingsVM.rescan(); }
+                        }
+                        Button {
+                            text: "Shut down";
+                            icon: "power";
+                            clicked => { AppVM.confirm-shutdown = true; }
+                        }
                     }
                 }
             }

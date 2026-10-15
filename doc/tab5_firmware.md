@@ -46,6 +46,14 @@ Sources: `firmware/tab5` (device crate) and `firmware/piano-core`
 | **Follow** | The song runs at the chosen tempo; your hand's keys light up ahead of time ("light keys ahead", 200–1500 ms), and hits within −250/+300 ms are scored. |
 | **Listen** | The piano plays the song (LEDs follow the notes). The hands selector picks what is played. |
 
+**Shut down**: the power icon at the top right (or **Settings → Shut
+down**) asks for confirmation, stops playback and switches every piano LED
+off, then pulses the Tab5's hardware power latch (POWEROFF_GEN, expander
+0x44 P4). On battery this cuts power. With USB-C power connected the latch
+cannot, so the firmware turns the screen, USB-A and C6 off and enters deep
+sleep. In both cases one press of the side power button starts it again
+(verified both ways round on the bench: shutdown, then power-button boot).
+
 Settings (all saved in NVS): Bluetooth/USB, accompaniment, easy mode (any
 key advances — for children), hint LED off when pressed, follow lead
 time, brightness, **Light all keys** / **All off** test buttons, the
@@ -172,6 +180,7 @@ Tab5: ESP32-P4 rev v1.3, 16 MB flash, ST7123 panel, C6 ESP-Hosted
 | USB Learn / Follow / Listen end-to-end | reported working via the UI; not separately logged |
 | Search: `mbg` → 卖报歌, `xiaoxingxing` → 小星星; result loads | ✔ |
 | A–B loop: jumps back at B, re-lights first chord, pass counter | ✔ (over Bluetooth) |
+| Shut down → LEDs off, Tab5 off (USB-C powered: deep-sleep fallback); power button boots | ✔ |
 
 ## Known limits / ideas
 
