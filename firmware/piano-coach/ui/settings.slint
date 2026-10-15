@@ -1,7 +1,7 @@
 import { Theme } from "theme.slint";
 import { Icon } from "icons.slint";
 import { Button, Card, Toggle, Slider, Segmented } from "widgets.slint";
-import { SettingsVM, AppVM } from "state.slint";
+import { SettingsVM, AppVM, PlayerVM } from "state.slint";
 
 component Heading inherits Text {
     font-size: Theme.fs-lg;
@@ -54,6 +54,20 @@ export component SettingsPage inherits Rectangle {
                     maximum: 1500;
                     value <=> SettingsVM.lead;
                     released(v) => { SettingsVM.set-lead(v); }
+                }
+                Rectangle { height: 8px; }
+                // Sheet music (Play page → Sheet).
+                Text { text: "Sheet music note colours"; color: Theme.text; font-size: Theme.fs; }
+                Segmented {
+                    options: ["Ink", "Boomwhackers", "Rainbow"];
+                    selected: PlayerVM.sheet-colors;
+                    changed(i) => { PlayerVM.set-sheet-colors(i); }
+                }
+                Text { text: "Note names in the heads"; color: Theme.text; font-size: Theme.fs; }
+                Segmented {
+                    options: ["Off", "C D E", "Do Re Mi"];
+                    selected: PlayerVM.sheet-names;
+                    changed(i) => { PlayerVM.set-sheet-names(i); }
                 }
                 Rectangle { vertical-stretch: 1; }
             }

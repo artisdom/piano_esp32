@@ -7,7 +7,7 @@ the UI a second time (slint-build gives each font the whole character set,
 borrowing missing glyphs from system fallback fonts: +2.4 MB), so the 13
 glyphs become SVGs instead, rasterised at build time and tinted at run time.
 
-Writes ui/sheet/<name>.svg (sized for a 9 px staff space = 36 px em) and
+Writes ui/sheet/<name>.svg (sized for a 16 px staff space = 64 px em) and
 src/ui/glyph_boxes.rs (each glyph's box in font units relative to its
 origin; baseline = the staff's bottom line, 250 units = one staff space).
 
@@ -25,7 +25,7 @@ GLYPHS = [
     ("head-whole", 0x1D15D), ("rest-whole", 0x1D13B), ("rest-half", 0x1D13C),
     ("rest-quarter", 0x1D13D), ("rest-8", 0x1D13E), ("rest-16", 0x1D13F),
 ]
-EM_PX = 36.0  # 4 staff spaces of 9 px
+EM_PX = 64.0  # 4 staff spaces of 16 px (the full-screen sheet on the Tab5)
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--font", default="/usr/share/fonts/truetype/noto/NotoMusic-Regular.ttf")

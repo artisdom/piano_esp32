@@ -867,12 +867,30 @@ pub fn run(ctx: Ctx) -> anyhow::Result<()> {
     {
         let p = ui.global::<PlayerVM>();
         p.set_sheet(prefs::get_bool("sheet", false));
+        p.set_sheet_colors(prefs::get_i32("shcolors").unwrap_or(1).clamp(0, 2));
+        p.set_sheet_names(prefs::get_i32("shnames").unwrap_or(0).clamp(0, 2));
         let (w, r) = (ui.as_weak(), sheet_refresh.clone());
         p.on_set_sheet(move |on| {
             if let Some(ui) = w.upgrade() {
                 ui.global::<PlayerVM>().set_sheet(on);
             }
             prefs::set_bool("sheet", on);
+            r.set(true);
+        });
+        let (w, r) = (ui.as_weak(), sheet_refresh.clone());
+        p.on_set_sheet_colors(move |c| {
+            if let Some(ui) = w.upgrade() {
+                ui.global::<PlayerVM>().set_sheet_colors(c);
+            }
+            prefs::set_i32("shcolors", c);
+            r.set(true);
+        });
+        let (w, r) = (ui.as_weak(), sheet_refresh.clone());
+        p.on_set_sheet_names(move |n| {
+            if let Some(ui) = w.upgrade() {
+                ui.global::<PlayerVM>().set_sheet_names(n);
+            }
+            prefs::set_i32("shnames", n);
             r.set(true);
         });
     }
@@ -1211,7 +1229,9 @@ pub fn run(ctx: Ctx) -> anyhow::Result<()> {
                     (true, piano_core::song::HandSel::Left) => 2,
                     _ => 3,
                 };
-                sheet_view.update(&p, s.song.as_ref(), s.pos_ms, now, staves);
+                // Full screen below the 52 px control band (ui/player.slint).
+                let area = (1280.0, board::WINDOW_HEIGHT as f32 / board::UI_SCALE - 52.0);
+                sheet_view.update(&p, s.song.as_ref(), s.pos_ms, now, staves, area);
             }
 
             // Falling notes (not while the sheet replaces them).

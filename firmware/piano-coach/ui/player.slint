@@ -145,8 +145,6 @@ component Roll inherits Rectangle {
 component Sheet inherits Rectangle {
     property <color> ink: #1d2128;
     property <length> sp: PlayerVM.sheet-space;
-    width: Geometry.keys-width;
-    border-radius: Theme.radius;
     background: #f6f3ec;
     clip: true;
     for r in PlayerVM.sheet-rects: Rectangle {
@@ -167,16 +165,50 @@ component Sheet inherits Rectangle {
     }
     // Clefs, accidentals, heads and rests: Noto Music glyphs exported as
     // SVGs (tools/make_music_glyphs.py), in piano_core::notation::Glyph order.
-    for g in PlayerVM.sheet-glyphs: Image {
+    for g in PlayerVM.sheet-glyphs: Rectangle {
         x: g.x;
         y: g.y;
         width: g.w;
         height: g.h;
-        image-fit: fill;
-        source: g.kind == 0 ? @image-url("sheet/gclef.svg") : g.kind == 1 ? @image-url("sheet/fclef.svg") : g.kind == 2 ? @image-url("sheet/sharp.svg") : g.kind == 3 ? @image-url("sheet/flat.svg") : g.kind == 4 ? @image-url("sheet/natural.svg") : g.kind == 5 ? @image-url("sheet/head-black.svg") : g.kind == 6 ? @image-url("sheet/head-half.svg") : g.kind == 7 ? @image-url("sheet/head-whole.svg") : g.kind == 8 ? @image-url("sheet/rest-whole.svg") : g.kind == 9 ? @image-url("sheet/rest-half.svg") : g.kind == 10 ? @image-url("sheet/rest-quarter.svg") : g.kind == 11 ? @image-url("sheet/rest-8.svg") : @image-url("sheet/rest-16.svg");
-        colorize: g.ms >= 0 && abs(g.ms - PlayerVM.sheet-now) <= 40
-            && (g.staff == 0 ? mod(PlayerVM.sheet-staves, 2) == 1 : PlayerVM.sheet-staves >= 2)
-            ? Theme.led : ink;
+        property <bool> now: g.ms >= 0 && abs(g.ms - PlayerVM.sheet-now) <= 40
+            && (g.staff == 0 ? mod(PlayerVM.sheet-staves, 2) == 1 : PlayerVM.sheet-staves >= 2);
+        // With pitch colours the notes to play now get a red halo.
+        if now && g.colored: Rectangle {
+            x: -0.45 * sp;
+            y: -0.4 * sp;
+            width: parent.width + 0.9 * sp;
+            height: parent.height + 0.8 * sp;
+            border-radius: self.height / 2;
+            background: Theme.led.with-alpha(0.25);
+            border-width: 2.5px;
+            border-color: Theme.led;
+        }
+        Image {
+            width: parent.width;
+            height: parent.height;
+            image-fit: fill;
+            source: g.kind == 0 ? @image-url("sheet/gclef.svg") : g.kind == 1 ? @image-url("sheet/fclef.svg") : g.kind == 2 ? @image-url("sheet/sharp.svg") : g.kind == 3 ? @image-url("sheet/flat.svg") : g.kind == 4 ? @image-url("sheet/natural.svg") : g.kind == 5 ? @image-url("sheet/head-black.svg") : g.kind == 6 ? @image-url("sheet/head-half.svg") : g.kind == 7 ? @image-url("sheet/head-whole.svg") : g.kind == 8 ? @image-url("sheet/rest-whole.svg") : g.kind == 9 ? @image-url("sheet/rest-half.svg") : g.kind == 10 ? @image-url("sheet/rest-quarter.svg") : g.kind == 11 ? @image-url("sheet/rest-8.svg") : @image-url("sheet/rest-16.svg");
+            colorize: g.colored ? g.color : now ? Theme.led : ink;
+        }
+        // Dark rim over a coloured filled head (light colours on paper).
+        if g.outline: Image {
+            width: parent.width;
+            height: parent.height;
+            image-fit: fill;
+            source: @image-url("sheet/head-half.svg");
+            colorize: ink;
+        }
+        if g.label != "": Text {
+            width: parent.width;
+            height: parent.height;
+            text: g.label;
+            // One letter fills the head; two (do, re, …) a little smaller.
+            font-size: (PlayerVM.sheet-names == 2 ? 0.68 : 0.86) * sp;
+            font-weight: 700;
+            color: g.label-color;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
     }
     for d in PlayerVM.sheet-dots: Rectangle {
         x: d.x - 0.22 * sp;
@@ -224,10 +256,116 @@ component Sheet inherits Rectangle {
         horizontal-alignment: center;
         vertical-alignment: center;
     }
-    Overlay { }
+}
+
+component BandButton inherits Rectangle {
+    in property <string> icon;
+    in property <string> text;
+    in property <bool> on;
+    callback clicked;
+    width: root.text == "" ? 48px : max(48px, label.preferred-width + 24px);
+    height: 44px;
+    border-radius: 22px;
+    background: ta.pressed ? Theme.raised.brighter(0.2) : on ? Theme.accent : Theme.raised;
+    if root.icon != "": Icon {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        name: root.icon;
+        size: 22px;
+    }
+    label := Text {
+        visible: root.text != "";
+        text: root.text;
+        font-size: Theme.fs-sm;
+        font-weight: 700;
+        color: Theme.text;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    ta := TouchArea { clicked => { root.clicked(); } }
+}
+
+// Full-screen sheet music: a slim band with the song, the Learn prompt,
+// the score and the controls; the rest of the screen is paper.
+component FullSheet inherits Rectangle {
+    background: #f6f3ec;
+    property <length> band: 52px;
+    Rectangle {
+        height: band;
+        y: 0;
+        background: Theme.surface;
+        HorizontalLayout {
+            padding-left: 12px;
+            padding-right: 8px;
+            spacing: 8px;
+            alignment: stretch;
+            VerticalLayout {
+                alignment: center;
+                horizontal-stretch: 1;
+                min-width: 160px;
+                Text { text: PlayerVM.title; font-size: Theme.fs; font-weight: 700; color: Theme.text; overflow: elide; }
+            }
+            // Learn prompt / state, then the score.
+            VerticalLayout {
+                alignment: center;
+                Text {
+                    text: PlayerVM.prompt;
+                    font-size: Theme.fs-lg;
+                    font-weight: 700;
+                    color: Theme.led;
+                    overflow: elide;
+                    max-width: 380px;
+                }
+            }
+            if PlayerVM.mode != 0: VerticalLayout {
+                alignment: center;
+                Text {
+                    text: PlayerVM.accuracy + "  ·  " + PlayerVM.steps + "  ·  " + PlayerVM.streak + "×";
+                    font-size: Theme.fs-sm;
+                    color: Theme.dim;
+                }
+            }
+            if PlayerVM.loop-text != "": VerticalLayout {
+                alignment: center;
+                Text { text: "loop " + PlayerVM.loop-text; font-size: Theme.fs-sm; color: Theme.right-hand; }
+            }
+            BandButton { y: (band - self.height) / 2; icon: "replay"; clicked => { PlayerVM.restart(); } }
+            BandButton {
+                y: (band - self.height) / 2;
+                icon: PlayerVM.state == 1 || PlayerVM.state == 2 ? "pause" : "play";
+                on: true;
+                clicked => { PlayerVM.play-pause(); }
+            }
+            BandButton { y: (band - self.height) / 2; icon: "minus"; clicked => { PlayerVM.tempo-step(-10); } }
+            VerticalLayout {
+                alignment: center;
+                min-width: 52px;
+                Text { text: PlayerVM.tempo + "%"; font-size: Theme.fs-sm; font-weight: 700; color: Theme.text; horizontal-alignment: center; }
+            }
+            BandButton { y: (band - self.height) / 2; icon: "plus"; clicked => { PlayerVM.tempo-step(10); } }
+            BandButton {
+                y: (band - self.height) / 2;
+                text: PlayerVM.sheet-colors == 0 ? "Ink" : PlayerVM.sheet-colors == 1 ? "Boomwhackers" : "Rainbow";
+                clicked => { PlayerVM.set-sheet-colors(mod(PlayerVM.sheet-colors + 1, 3)); }
+            }
+            BandButton {
+                y: (band - self.height) / 2;
+                text: PlayerVM.sheet-names == 0 ? "No names" : PlayerVM.sheet-names == 1 ? "C D E" : "Do Re Mi";
+                clicked => { PlayerVM.set-sheet-names(mod(PlayerVM.sheet-names + 1, 3)); }
+            }
+            // Leave full screen: back to the keyboard view.
+            BandButton { y: (band - self.height) / 2; icon: "close"; clicked => { PlayerVM.set-sheet(false); } }
+        }
+    }
+    Sheet {
+        y: band;
+        height: parent.height - band;
+    }
 }
 
 export component PlayerPage inherits Rectangle {
+    if PlayerVM.sheet: FullSheet { }
+    if !PlayerVM.sheet: Rectangle {
     VerticalLayout {
         padding: 16px;
         padding-top: 10px;
@@ -378,10 +516,8 @@ export component PlayerPage inherits Rectangle {
             }
             Button { icon: "plus"; width: 52px; clicked => { PlayerVM.tempo-step(10); } }
         }
-        if !PlayerVM.sheet: Roll { }
-        if !PlayerVM.sheet: Keyboard { }
-        if PlayerVM.sheet: Sheet {
-            height: Geometry.roll-height + Geometry.keys-height + 10px;
-        }
+        Roll { }
+        Keyboard { }
+    }
     }
 }

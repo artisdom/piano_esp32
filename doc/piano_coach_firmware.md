@@ -62,13 +62,23 @@ Sources: `firmware/piano-coach` (device crate) and `firmware/piano-core`
    violet left hand, red = what to play now); the on-screen keyboard
    mirrors the piano's LEDs (red), your key presses (blue) and wrong
    notes (amber).
-   **Keys / Sheet** (right of the hands switch, remembered) swaps the
-   falling notes and keyboard for **sheet music**: a grand staff (right
-   hand on the treble staff, left hand on the bass staff) with clefs, key
-   and time signatures, beamed eighths/sixteenths, rests, ties and
-   accidentals, two lines at a time. A blue cursor follows the music, the
-   notes to play now turn red (the hand(s) you practise), and the page
-   turns when the cursor reaches the lower line.
+   **Keys / Sheet** (right of the hands switch, remembered) switches to
+   **full-screen sheet music**: the top bar and controls give way to a
+   slim band (song, Learn prompt, score, restart, play/pause, tempo −/+,
+   colour scheme, note names, ✕ back to the keyboard view) and the rest of
+   the screen is a grand staff (right hand treble, left hand bass) as
+   large as two lines fit — a 16 px staff space on the Tab5 — with clefs,
+   key and time signatures, beamed eighths/sixteenths, rests, ties and
+   accidentals. A blue cursor follows the music and the page turns when
+   it reaches the lower line.
+   **Colour notation** (band button or Settings → Sheet music): note heads
+   coloured by pitch class — **Boomwhackers** (default: C red, D orange,
+   E yellow, F lime, G green, A purple, B magenta, sharps/flats between
+   their neighbours), **Rainbow** (Chroma-Notes style: C red … G blue,
+   A indigo, B violet) or **Ink** (black). Filled heads keep a dark rim so
+   light colours read on paper. The notes to play now get a red halo (in
+   Ink, they turn red). **Note names** in the heads: letters (C D E) or
+   fixed-do solfège (Do Re Mi), spelled by the key signature.
 
 | Mode | What happens |
 |---|---|
@@ -340,8 +350,10 @@ piano-core: smf · song · engine · usbmidi · blemidi · library · search ·
   primitives — rectangles, glyphs, dots, flags, ties, digits — that the
   Play page draws from six Slint models, two systems at a time; heads
   carry their note's start so Slint colours the current ones red. Every
-  library song engraves (host test), ≤ 62 ms on the PC; 卖报歌 takes
-  22 ms on the Tab5. The music symbols are Noto Music glyphs exported as
+  library song engraves (host test), ≤ 62 ms on the PC; on the Tab5 卖报歌
+  takes 22 ms and a 24-line score 149 ms. The staff space follows the
+  screen (two systems of 20.5 spaces in the height below the band); the
+  colour and name options only refill the models. The music symbols are Noto Music glyphs exported as
   SVGs (`tools/make_music_glyphs.py`) rather than an imported font:
   slint-build gives every font the UI's whole character set (filling gaps
   from system fallback fonts), which re-embedded the ~4000 CJK glyphs
@@ -402,6 +414,7 @@ Tab5: ESP32-P4 rev v1.3, 16 MB flash, ST7123 panel, C6 ESP-Hosted
 | Bookmarks listed under ★; Learn score recorded with "New best!"; survives reboot | ✔ |
 | Song globe: spin, tap-to-pick, category chips; no leftovers on screen switches | ✔ |
 | Sheet music: readable grand staff, red current notes in Learn, cursor, smooth page turns in Listen | ✔ |
+| Full-screen sheet, Boomwhackers / Rainbow colours, letter / solfège names, band controls | ✔ |
 
 Korvo: ESP32-S31-Korvo-1 V1.1 (ESP32-S31-WROOM-3, 16 MB flash, 16 MB
 PSRAM), SUB3 800×480 RGB panel with a GT1158 touch controller, ESP-IDF

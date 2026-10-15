@@ -266,6 +266,14 @@ fn spell(key: u8, flats: bool) -> (i32, i8) {
     ((octave - 4) * 7 + letter, alter)
 }
 
+/// How `key` is written in key signature `key_sig`: its letter
+/// (0 = C … 6 = B) and alteration (−1 flat, 0, +1 sharp) — black keys are
+/// sharps, or flats in flat keys.
+pub fn spelling(key: u8, key_sig: i8) -> (u8, i8) {
+    let (step, alter) = spell(key, key_sig < 0);
+    (step.rem_euclid(7) as u8, alter)
+}
+
 /// Alteration the key signature gives a letter (0 = C … 6 = B).
 fn key_alter(key: i8, letter: i32) -> i8 {
     const SHARPS: [i32; 7] = [3, 0, 4, 1, 5, 2, 6]; // F C G D A E B

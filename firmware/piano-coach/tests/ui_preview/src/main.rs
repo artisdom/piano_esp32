@@ -219,7 +219,12 @@ fn pages(window: &MinimalSoftwareWindow, ui: &AppWindow) {
         let song = std::sync::Arc::new(song);
         let ms = (song.duration_ms as f32 * frac) as u32;
         let now = song.onset_at_or_before(ms);
-        sh.update(&p, Some(&song), ms, Some(now), 3);
+        // Colour schemes / names vary per sample.
+        p.set_sheet_colors((n % 3) as i32);
+        p.set_sheet_names(if n == 2 { 1 } else if n == 4 { 2 } else { 0 });
+        let (_, h, board) = SIZE.with(|s| s.get());
+        let scale = BOARDS.iter().find(|b| b.0 == board).map(|b| b.3).unwrap_or(1.0);
+        sh.update(&p, Some(&song), ms, Some(now), 3, (1280.0, h as f32 / scale - 52.0));
         p.set_title(path.file_stem().unwrap().to_string_lossy().to_string().into());
         p.set_subtitle(format!("key {} · {:?}", song.meter.key, song.meter.time_sigs.first()).into());
         render(window, &format!("sheet-{n}"));

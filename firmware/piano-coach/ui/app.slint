@@ -20,9 +20,11 @@ export component AppWindow inherits Window {
     default-font-size: 19px;
 
     VerticalLayout {
-        // Top bar: brand, page tabs, piano connection.
+        // Top bar: brand, page tabs, piano connection — hidden while the
+        // Play page shows full-screen sheet music.
         Rectangle {
-            height: 72px;
+            height: AppVM.page == 1 && PlayerVM.sheet ? 0px : 72px;
+            visible: !(AppVM.page == 1 && PlayerVM.sheet);
             background: Theme.surface;
             HorizontalLayout {
                 padding-left: 20px;

@@ -105,7 +105,13 @@ export global LibraryVM {
 // digits. Positions are in the sheet's frame; `ms` >= 0 marks a note head
 // (its note's start), `staff` 0 treble / 1 bass.
 export struct SheetRect { x: length, y: length, w: length, h: length }
-export struct SheetGlyph { x: length, y: length, w: length, h: length, kind: int, ms: int, staff: int }
+// Glyphs: `kind` = piano_core::notation::Glyph::index(); heads may carry a
+// pitch colour (`colored`), a dark outline over a coloured fill
+// (`outline`) and a note name (`label`, drawn in `label-color`).
+export struct SheetGlyph {
+    x: length, y: length, w: length, h: length, kind: int, ms: int, staff: int,
+    colored: bool, color: color, outline: bool, label: string, label-color: color,
+}
 export struct SheetDot { x: length, y: length }
 export struct SheetFlag { x: length, y: length, up: bool }
 export struct SheetTie { x: length, y: length, w: length, up: bool }
@@ -133,6 +139,12 @@ export global PlayerVM {
     // Sheet music view (instead of the note roll + keyboard).
     in-out property <bool> sheet;
     callback set-sheet(bool);
+    // Note-head colours: 0 off, 1 Boomwhackers, 2 rainbow (Chroma-Notes
+    // style). Note names in heads: 0 off, 1 letters, 2 solfège.
+    in-out property <int> sheet-colors: 1;
+    callback set-sheet-colors(int);
+    in-out property <int> sheet-names: 0;
+    callback set-sheet-names(int);
     in property <length> sheet-space: 10px;
     in property <[SheetRect]> sheet-rects;
     in property <[SheetGlyph]> sheet-glyphs;
