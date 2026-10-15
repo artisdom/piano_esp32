@@ -15,6 +15,7 @@ boards have a minimal UI, keep their songs in flash and use Bluetooth
 | ESP32-1732S019 | ESP32-S3 (Xtensa, 16 MB flash, 8 MB PSRAM) | 1.9″ 170×320 ST7789, used as 320×170, no touch | minimal UI; BLE only; all 2449 songs in flash; BOOT key |
 | ESP32-2424S012C | ESP32-C3 (RISC-V 160 MHz, 400 KB RAM, 4 MB flash) | 1.28″ round 240×240 GC9A01 + CST816D touch | minimal UI; BLE only; 776 songs (≤ 1200 notes) in flash; BOOT key |
 | ESP-WROVER-KIT v4.1 | ESP32 rev 1 (dual Xtensa 240 MHz, 4 MB flash; PSRAM unused) | 3.2″ 320×240 ILI9341 / ST7789V (auto-detected), UI at 1.25× | minimal UI; BLE only; 776 songs (≤ 1200 notes) in flash; BOOT key; **remove any microSD card** |
+| Ai-Thinker ESP32-Audio-Kit | ESP32 rev 3 (4 MB flash, 4 MB PSRAM used), ES8388 codec | none — keys, tones and a Wi-Fi web page | headless; BLE only; whole library from microSD; speaker synth; six keys |
 | LILYGO T-Display-S3 | ESP32-S3R8 (16 MB flash, 8 MB PSRAM) | 1.9″ 170×320 ST7789 on an 8-bit parallel bus, used as 320×170; touch on the Touch variant | minimal UI; BLE only; all 2449 songs in flash; BOOT + KEY keys |
 
 Board support is a layer of its own (`firmware/piano-coach/src/board/`,
@@ -176,6 +177,38 @@ revolutionary and film categories first, then others, only songs with
 ≤ 1200 notes (a song's engine data must fit beside Bluetooth and the
 UI in the C3's ~150 KB of free heap).
 
+## Boards without a display (ESP32-Audio-Kit)
+
+The ESP32-Audio-Kit has no screen. Piano Coach runs **headless** on it: the
+song library comes from its microSD card (as on the Tab5), the piano from
+Bluetooth, and you control it with its **six keys** and a **web page on your
+phone**; its speaker plays the built-in piano synth and short feedback tones.
+
+**Web page**: the board opens a Wi-Fi network **PianoCoach-XXXX** (password
+`pianocoach`). Join it with a phone; the page opens by itself ("Sign in to
+network" — the board answers every DNS name and redirects the phones'
+connectivity checks to itself), or open **http://192.168.4.1**. It shows the
+current song, the Learn prompt, progress and score, with buttons for
+previous / restart / play-pause / stop / next, Learn / Follow / Listen,
+Both / Right / Left, tempo, where notes sound (piano / speaker / both) and
+speaker volume; below, the library by folder and a search box (pinyin
+initials such as `xxx` → 小星星, full pinyin or text). Tapping a song makes
+its folder the playlist and starts it. Light all keys / All off test the
+piano's LEDs.
+
+| Key (ADF name) | Press | Hold |
+|---|---|---|
+| KEY1 (REC) | restart the song | notes from piano → speaker → both (1–3 beeps) |
+| KEY2 (MODE) | Learn → Follow → Listen (1, 2, 3 rising beeps) | hands Both → Right → Left (octave / high / low beep) |
+| KEY3 (SET) | next song in the folder (starts at once) | previous song |
+| KEY4 (PLAY) | play / pause | stop |
+| KEY5 (VOL+) | speaker louder | tempo +10 % |
+| KEY6 (VOL−) | speaker softer | tempo −10 % |
+| piano A0 / B0 / C1 / D1 (while nothing plays) | previous song / next song / play-pause / stop | |
+
+The green LED is on while the piano is connected and blinks while the
+board searches for it. The last song played is remembered.
+
 Hands are assigned from track names (left/right/左/右), else the
 higher-pitched of two tracks is the right hand, else notes split at middle
 C. In the bundled JustPiano library 2200 of 2449 songs have exactly two
@@ -214,6 +247,7 @@ tools/songs.sh tdisplays3 build && tools/songs.sh tdisplays3 flash --port /dev/t
 tools/board.sh tdisplays3 run --release -- --port /dev/ttyACM0
 tools/songs.sh wroverkit build && tools/songs.sh wroverkit flash --port /dev/ttyUSB1 --baud 921600
 tools/board.sh wroverkit run --release -- --port /dev/ttyUSB1
+tools/board.sh audiokit run --release -- --port /dev/ttyUSB0      # songs: microSD card
 ```
 
 The ESP-WROVER-KIT's FT2232 gives two ports: `/dev/ttyUSB0` is JTAG,
@@ -382,6 +416,32 @@ piano-core: smf · song · engine · usbmidi · blemidi · library · search ·
   slint-build gives every font the UI's whole character set (filling gaps
   from system fallback fonts), which re-embedded the ~4000 CJK glyphs
   (+2 MB).
+* **Headless UI** (`headless.rs`, `web.rs`, `web/index.html`): a `Coach`
+  (playlist = the current song's folder, mode, hands, tempo, speaker) shared
+  by the key loop and the HTTP handlers; tones go straight to the synth.
+  The page is one HTML file gzipped by build.rs (11.6 → 4 KB) and polls
+  `/api/state` once a second; folder listings and searches carry a
+  sequence number so a slow, earlier answer cannot overwrite a newer one.
+  Wi-Fi access point at 192.168.4.1 (esp-idf-svc's default subnet is
+  192.168.71.x) with a captive-portal DNS. The ESP32's internal RAM is the
+  limit with Wi-Fi + BLE + an HTTP task: every plain malloc goes to PSRAM
+  first (`SPIRAM_MALLOC_ALWAYSINTERNAL=0` — the search index alone is
+  thousands of small strings), threads that never write flash keep their
+  stacks in PSRAM (`threads.rs`; on the ESP32 PSRAM is off during flash
+  writes), small Wi-Fi buffer pools, and the HTTP server starts before
+  Wi-Fi (its start-up fragments internal RAM): 72 KB internal free with
+  everything running. Radio sharing: preferring BT starved Wi-Fi (8 s
+  page loads); instead the piano's own renegotiation to a 10 ms interval
+  with a 500 ms supervision timeout is answered with a request for
+  30–50 ms and 4 s — page requests then take 0.1–0.4 s and the link
+  rides out busy moments. The ES8388 and the 1-bit SD card come up in a
+  small C component (`components/audiokit_bsp`). The speaker amplifiers
+  hang on the ES8388's LOUT2/ROUT2, which esp_codec_dev leaves at −30 dB
+  (it sets only the headphone outputs to 0 dB) and offers no register
+  write for (`esp_codec_dev_write_reg` silently does nothing on this
+  codec): the BSP sets them to +3 dB over the codec's I²C control
+  interface. Output is stereo (one channel per amplifier) and the synth
+  runs at twice its default gain (`SYNTH_GAIN` in the board profile).
 * **Board classes** (`boards/<board>/board.env` `UI=` / `HAS=`, turned
   into `cfg(ui_full)` / `cfg(ui_mini)` / `cfg(has_usb|has_sd|has_speaker)`
   by build.rs): the full UI (`ui.rs`, `ui/app.slint`) on framebuffer
@@ -467,6 +527,13 @@ master v6.1-dev (4d59230ddff).
 | Piano keys A0/B0/C1/D1 as menu keys | ✔ | not separately tried (same code) |
 | Heap | 8.3 MB free (PSRAM) | 155 KB idle; 88 KB with a 761-note song, 40 KB low-water |
 | App image | 2.9 MB of 4 MB | 2.3 MB of 2.5 MB (Slint built for size) |
+
+ESP32-Audio-Kit (ESP32-A1S ES8388, ESP32 rev 3.1, 4 MB flash, 8 MB PSRAM
+of which 4 MB mapped): microSD (2449 songs indexed in 11 s), ES8388
+speaker (loud and clean once LOUT2/ROUT2 were raised from −30 dB), BLE,
+the six keys with beeps, the Wi-Fi page from a phone
+(captive portal) and from a PC (page 0.2–0.3 s, state 0.1–0.4 s) ✔; app
+1.6 MB of 3.9 MB.
 
 ESP-WROVER-KIT v4.1 (ESP32 rev 1.0, 4 MB flash, ILI9341 detected by its
 zero ID): display, 776 songs, BLE, BOOT navigation and Learn ✔; app

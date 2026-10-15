@@ -38,6 +38,7 @@ static CONNECT_DONE: AtomicBool = AtomicBool::new(false);
 static VAL_HANDLE: AtomicU16 = AtomicU16::new(0);
 static MTU: AtomicU16 = AtomicU16::new(23);
 static DISCONNECT_REASON: AtomicU16 = AtomicU16::new(0);
+static CONNECT_STATUS: AtomicU16 = AtomicU16::new(0);
 static FOUND: Mutex<Option<nb::ble_addr_t>> = Mutex::new(None);
 static RX: Mutex<Option<Sender<Vec<u8>>>> = Mutex::new(None);
 
@@ -109,6 +110,8 @@ extern "C" fn on_gap(event: *mut nb::ble_gap_event, _arg: *mut core::ffi::c_void
                 let c = &ev.__bindgen_anon_1.connect;
                 if c.status == 0 {
                     CONN.store(c.conn_handle, Ordering::SeqCst);
+                } else {
+                    CONNECT_STATUS.store(c.status as u16, Ordering::SeqCst);
                 }
                 CONNECT_DONE.store(true, Ordering::SeqCst);
             }
@@ -118,6 +121,26 @@ extern "C" fn on_gap(event: *mut nb::ble_gap_event, _arg: *mut core::ffi::c_void
                 DISCONNECT_REASON.store(ev.__bindgen_anon_1.disconnect.reason as u16, Ordering::SeqCst);
                 CONN.store(NO_CONN, Ordering::SeqCst);
                 VAL_HANDLE.store(0, Ordering::SeqCst);
+            }
+            nb::BLE_GAP_EVENT_CONN_UPDATE => {
+                let conn = ev.__bindgen_anon_1.conn_update.conn_handle;
+                log_conn_params(conn, "updated");
+                #[cfg(ui_headless)]
+                relax_link(conn);
+            }
+            // Boards that share the radio with Wi-Fi keep the interval at
+            // 30–50 ms: shorter ones starve Wi-Fi (the web page) of airtime.
+            #[cfg(ui_headless)]
+            nb::BLE_GAP_EVENT_CONN_UPDATE_REQ | nb::BLE_GAP_EVENT_L2CAP_UPDATE_REQ => {
+                let r = &ev.__bindgen_anon_1.conn_update_req;
+                if !r.self_params.is_null() {
+                    let s = &mut *r.self_params;
+                    if s.itvl_max < 24 {
+                        s.itvl_min = 24;
+                        s.itvl_max = 40;
+                    }
+                    s.supervision_timeout = s.supervision_timeout.max(400);
+                }
             }
             nb::BLE_GAP_EVENT_MTU => {
                 MTU.store(ev.__bindgen_anon_1.mtu.value, Ordering::SeqCst);
@@ -205,17 +228,84 @@ fn scan() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Headless boards share the radio with Wi-Fi. The piano renegotiates a
+/// 10 ms interval with a 500 ms supervision timeout right after connecting
+/// (link-layer procedure, not offered to the host), which drops the link
+/// whenever Wi-Fi is busy: ask for 30–50 ms and 4 s instead, at most twice
+/// per connection so the two sides cannot ping-pong.
+#[cfg(ui_headless)]
+fn relax_link(conn: u16) {
+    static TRIES: AtomicU16 = AtomicU16::new(0);
+    static FOR_CONN: AtomicU16 = AtomicU16::new(NO_CONN);
+    if FOR_CONN.swap(conn, Ordering::SeqCst) != conn {
+        TRIES.store(0, Ordering::SeqCst);
+    }
+    unsafe {
+        let mut d: nb::ble_gap_conn_desc = core::mem::zeroed();
+        if nb::ble_gap_conn_find(conn, &mut d) != 0 || (d.conn_itvl >= 24 && d.supervision_timeout >= 400) {
+            return;
+        }
+        if TRIES.fetch_add(1, Ordering::SeqCst) >= 2 {
+            return;
+        }
+        let p = nb::ble_gap_upd_params {
+            itvl_min: 24,
+            itvl_max: 40,
+            latency: 0,
+            supervision_timeout: 400,
+            min_ce_len: 0x10,
+            max_ce_len: 0x300,
+        };
+        let rc = nb::ble_gap_update_params(conn, &p);
+        info!("ble-midi: asking for a 30–50 ms interval, 4 s supervision (rc {rc})");
+    }
+}
+
+/// Connection interval, latency and supervision timeout in use.
+fn log_conn_params(conn: u16, when: &str) {
+    unsafe {
+        let mut d: nb::ble_gap_conn_desc = core::mem::zeroed();
+        if nb::ble_gap_conn_find(conn, &mut d) == 0 {
+            info!(
+                "ble-midi: link {when}: interval {:.2} ms, latency {}, supervision {} ms",
+                d.conn_itvl as f32 * 1.25,
+                d.conn_latency,
+                d.supervision_timeout as u32 * 10
+            );
+        }
+    }
+}
+
 fn connect(addr: nb::ble_addr_t) -> anyhow::Result<u16> {
     CONNECT_DONE.store(false, Ordering::SeqCst);
     CONN.store(NO_CONN, Ordering::SeqCst);
     unsafe {
         let _ = nb::ble_gap_disc_cancel();
-        let rc = nb::ble_gap_connect(0, &addr, 10_000, core::ptr::null(), Some(on_gap), core::ptr::null_mut());
+        // Headless boards share the radio with Wi-Fi: a 30–50 ms interval
+        // and a 6 s supervision timeout (default 2.56 s) ride out busy
+        // moments instead of dropping the piano.
+        #[cfg(ui_headless)]
+        let params = nb::ble_gap_conn_params {
+            scan_itvl: 0x10,
+            scan_window: 0x10,
+            itvl_min: 24,
+            itvl_max: 40,
+            latency: 0,
+            supervision_timeout: 400,
+            // NimBLE's own defaults (0 is not accepted by every controller).
+            min_ce_len: 0x10,
+            max_ce_len: 0x300,
+        };
+        #[cfg(ui_headless)]
+        let params_ptr: *const nb::ble_gap_conn_params = &params;
+        #[cfg(not(ui_headless))]
+        let params_ptr: *const nb::ble_gap_conn_params = core::ptr::null();
+        let rc = nb::ble_gap_connect(0, &addr, 10_000, params_ptr, Some(on_gap), core::ptr::null_mut());
         anyhow::ensure!(rc == 0, "connect rc {rc}");
     }
     wait("connect", 12, || CONNECT_DONE.load(Ordering::SeqCst))?;
     let conn = CONN.load(Ordering::SeqCst);
-    anyhow::ensure!(conn != NO_CONN, "connect failed");
+    anyhow::ensure!(conn != NO_CONN, "connect failed (status 0x{:x})", CONNECT_STATUS.load(Ordering::SeqCst));
     // MTU exchange (the piano offers ~500; NimBLE caps at our preference).
     unsafe {
         let _ = nb::ble_gattc_exchange_mtu(conn, None, core::ptr::null_mut());
@@ -236,6 +326,7 @@ fn connect(addr: nb::ble_addr_t) -> anyhow::Result<u16> {
     }
     std::thread::sleep(Duration::from_millis(200));
     info!("ble-midi: connected, MIDI value handle {h}, MTU {}", MTU.load(Ordering::SeqCst));
+    log_conn_params(conn, "up");
     Ok(conn)
 }
 

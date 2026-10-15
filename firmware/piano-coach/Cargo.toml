@@ -54,6 +54,8 @@ embuild = "0.33.3"
 # One signed-distance-field raster per glyph instead of one per size: the
 # ~4300-glyph CJK set would not fit otherwise.
 slint-build = { version = "=1.18.1", features = ["sdf-fonts"] }
+# Gzips the headless boards' web page at build time.
+miniz_oxide = "0.8"
 
 [features]
 default = ["board-tab5"]
@@ -67,6 +69,7 @@ board-1732s019 = []
 board-2424s012 = []
 board-tdisplays3 = []
 board-wroverkit = []
+board-audiokit = []
 
 # Each board's native components (BSP etc.) are listed in
 # boards/<board>/esp-idf-components.toml, selected through

@@ -2,7 +2,9 @@
 # README screenshots (doc/images/): the Tab5 UI from the real song library
 # (tests/ui_preview, bin `shots`) and the small boards' minimal UI
 # (tests/mini_preview), rendered on the PC with the device's Slint UI,
-# fonts, engraver and globe. Needs Python 3 with Pillow for the collage.
+# fonts, engraver and globe; the headless boards' phone page (web/index.html)
+# against tools/web_mock.py in headless Chrome. Needs Python 3 with Pillow
+# for the collage and google-chrome (or $CHROME) for the page.
 #
 #   tools/make_screenshots.sh            # library: $PIANO_MIDI_DIR or ~/w/piano/midi-piano/assets/midi
 set -euo pipefail
@@ -10,7 +12,18 @@ app_dir="$(cd "$(dirname "$0")/.." && pwd)"
 out="$app_dir/../../doc/images"
 mkdir -p "$out"
 tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
+mock=
+trap 'rm -rf "$tmp"; [ -n "$mock" ] && kill "$mock" 2>/dev/null || true' EXIT
+library="${PIANO_MIDI_DIR:-$HOME/w/piano/midi-piano/assets/midi}"
+
+# Phone page: a 390-px-wide phone at 2x, first screen and a half.
+python3 "$app_dir/tools/web_mock.py" --port 8765 --library "$library" &
+mock=$!
+sleep 1
+"${CHROME:-google-chrome}" --headless=new --disable-gpu --hide-scrollbars \
+    --force-device-scale-factor=2 --window-size=390,830 --virtual-time-budget=4000 \
+    --screenshot="$out/web.png" http://127.0.0.1:8765/ 2>/dev/null
+kill "$mock"; mock=
 
 (cd "$app_dir/tests/ui_preview" &&
     cargo +stable run -q --release --target x86_64-unknown-linux-gnu --bin shots -- "$out")

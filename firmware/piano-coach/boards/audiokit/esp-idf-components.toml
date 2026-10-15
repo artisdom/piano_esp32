@@ -1,0 +1,6 @@
+# ESP32-Audio-Kit: ES8388 codec (esp_codec_dev) and 1-bit microSD, in a
+# small C component. Paths are relative to this file.
+[[extra_components]]
+component_dirs = ["../../components/audiokit_bsp"]
+bindings_header = "../../src/bindings.h"
+bindings_module = "bsp"

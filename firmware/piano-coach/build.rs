@@ -11,7 +11,8 @@ struct Board {
     dir: String,
     feature: String,
     mcu: String,
-    /// `full` (1280-wide design, framebuffer) or `mini` (small SPI panels).
+    /// `full` (1280-wide design, framebuffer), `mini` (small SPI panels) or
+    /// `headless` (no display: keys, tones and a Wi-Fi web page).
     ui: String,
     /// Hardware the application may use: `usb` (USB-MIDI host), `sd`
     /// (microSD library), `speaker`.
@@ -42,8 +43,8 @@ fn boards() -> Vec<Board> {
             panic!("{}: unknown HAS entry `{bad}` (known: {})", env.display(), HAS.join(" "));
         }
         let ui = kv.get("UI").unwrap_or(&"full").to_string();
-        if ui != "full" && ui != "mini" {
-            panic!("{}: UI must be `full` or `mini`, not `{ui}`", env.display());
+        if !["full", "mini", "headless"].contains(&ui.as_str()) {
+            panic!("{}: UI must be `full`, `mini` or `headless`, not `{ui}`", env.display());
         }
         out.push(Board {
             feature: get("FEATURE"),
@@ -98,6 +99,7 @@ fn main() {
     // and one `has_<x>` per HAS entry.
     println!("cargo::rustc-check-cfg=cfg(ui_full)");
     println!("cargo::rustc-check-cfg=cfg(ui_mini)");
+    println!("cargo::rustc-check-cfg=cfg(ui_headless)");
     for h in HAS {
         println!("cargo::rustc-check-cfg=cfg(has_{h})");
     }
@@ -124,6 +126,30 @@ fn main() {
         .with_library_paths(
             [("board".to_string(), std::fs::canonicalize(format!("boards/{board}")).unwrap())].into(),
         );
+    // No display, no Slint UI: keys + a web page, served gzipped.
+    if b.ui == "headless" {
+        gzip_page("web/index.html");
+        return;
+    }
     let main = if b.ui == "mini" { "ui/mini/app.slint" } else { "ui/app.slint" };
     slint_build::compile_with_config(main, config).expect("slint build failed");
+}
+
+/// `web/index.html` → `$OUT_DIR/index.html.gz` (gzip around raw deflate).
+fn gzip_page(src: &str) {
+    println!("cargo:rerun-if-changed={src}");
+    let raw = std::fs::read(src).expect("web page");
+    let mut crc = !0u32;
+    for &b in &raw {
+        crc ^= b as u32;
+        for _ in 0..8 {
+            crc = if crc & 1 != 0 { (crc >> 1) ^ 0xEDB8_8320 } else { crc >> 1 };
+        }
+    }
+    let mut gz = vec![0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 2, 255];
+    gz.extend(miniz_oxide::deflate::compress_to_vec(&raw, 9));
+    gz.extend((!crc).to_le_bytes());
+    gz.extend((raw.len() as u32).to_le_bytes());
+    let out = std::path::Path::new(&std::env::var("OUT_DIR").unwrap()).join("index.html.gz");
+    std::fs::write(out, gz).unwrap();
 }

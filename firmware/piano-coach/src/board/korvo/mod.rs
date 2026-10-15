@@ -47,6 +47,7 @@ pub const RENDERING_ROTATION: RenderingRotation = RenderingRotation::NoRotation;
 /// mono synth.
 pub const AUDIO_OUT_RATE: u32 = 48_000;
 pub const AUDIO_CHANNELS: u32 = 2;
+pub const SYNTH_GAIN: f32 = 0.8;
 
 #[inline]
 pub fn fb_index(x: usize, y: usize) -> usize {
@@ -146,6 +147,22 @@ pub fn usb_host_start() -> anyhow::Result<()> {
 }
 
 /// The ES8389 driver switches the PA pin (GPIO7) with the codec.
+/// The BSP's speaker codec; it sits on the I2C bus the display bring-up
+/// creates, so this waits for the display first.
+pub fn speaker_codec() -> Option<bsp::esp_codec_dev_handle_t> {
+    while !super::DISPLAY_UP.load(std::sync::atomic::Ordering::SeqCst) {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    unsafe {
+        if bsp::bsp_audio_init(core::ptr::null()) != 0 {
+            warn!("audio: bsp_audio_init failed");
+            return None;
+        }
+        let spk = bsp::bsp_audio_codec_speaker_init();
+        (!spk.is_null()).then_some(spk)
+    }
+}
+
 pub fn speaker_enable(_on: bool) {}
 
 /// Native controller: `nimble_port_init` brings it up itself.

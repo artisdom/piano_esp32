@@ -1,0 +1,4 @@
+description: Piano Coach board support for the Ai-Thinker ESP32-Audio-Kit (ESP32-A1S, ES8388)
+dependencies:
+  idf: ">=5.3"
+  espressif/esp_codec_dev: "~1.5"

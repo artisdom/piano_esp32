@@ -42,25 +42,37 @@ mod imp;
 #[path = "wroverkit/mod.rs"]
 mod imp;
 
+#[cfg(feature = "board-audiokit")]
+#[path = "audiokit/mod.rs"]
+mod imp;
+
 mod contract;
 #[cfg(ui_mini)]
 pub mod cst816;
-#[cfg(ui_mini)]
+#[cfg(any(ui_mini, ui_headless))]
 pub mod key;
 #[cfg(ui_mini)]
 pub mod spi_lcd;
 
+#[allow(unused_imports)] // the headless UI has no backlight or shut-down item
 pub use imp::{bt_controller_start, early_init, init_power, poll_buttons, power_off, set_backlight, CAPS};
 // Only the full UI restarts (transport switch); every board provides it.
 #[cfg(ui_full)]
 pub use imp::reboot;
 
+#[cfg(has_sd)]
+pub use imp::mount_sd;
+#[cfg(has_speaker)]
+pub use imp::{speaker_codec, speaker_enable, AUDIO_CHANNELS, AUDIO_OUT_RATE, SYNTH_GAIN};
+
 #[cfg(ui_full)]
 pub use imp::{
-    display_init, fb_index, fb_rows, mount_sd, present, speaker_enable, touch_to_logical, usb_host_start,
-    AUDIO_CHANNELS, AUDIO_OUT_RATE, FRAME_HEIGHT, FRAME_WIDTH, RENDERING_ROTATION, UI_SCALE, WINDOW_HEIGHT,
-    WINDOW_WIDTH,
+    display_init, fb_index, fb_rows, present, touch_to_logical, usb_host_start, FRAME_HEIGHT, FRAME_WIDTH,
+    RENDERING_ROTATION, UI_SCALE, WINDOW_HEIGHT, WINDOW_WIDTH,
 };
+
+#[cfg(ui_headless)]
+pub use imp::status_led;
 
 #[cfg(ui_mini)]
 pub use imp::{lcd_draw, lcd_init, touch_point, LCD_HEIGHT, LCD_WIDTH, ROUND, UI_SCALE as MINI_SCALE};
@@ -107,6 +119,9 @@ pub enum Button {
     NavNext,
     NavOk,
     NavBack,
+    /// Boards with a row of numbered keys (KEY1…): a press / a hold.
+    Keypad(u8),
+    KeypadHold(u8),
 }
 
 // ---- framebuffer boards ----------------------------------------------------

@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Piano Coach</title>
+<style>
+  :root {
+    --bg: #0e1116; --surface: #161b22; --raised: #252d38; --border: #2b3440;
+    --text: #e9eef4; --dim: #8d99a6; --faint: #5b6673;
+    --accent: #ff5a6a; --led: #ff3b4f; --ok: #4ade80; --warn: #fbbf24; --right: #34d3c2; --left: #9b87ff;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.4 system-ui, -apple-system, "Segoe UI", "Noto Sans SC", "PingFang SC", sans-serif; }
+  main { max-width: 640px; margin: 0 auto; padding: 12px 14px 40px; }
+  header { display: flex; align-items: center; gap: 10px; padding: 4px 2px 12px; }
+  .logo { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center;
+    background: linear-gradient(135deg, #ff5a6a, #b03a8c); font-size: 20px; }
+  header h1 { font-size: 20px; margin: 0; flex: 1; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: 999px;
+    background: var(--surface); color: var(--dim); font-size: 13px; white-space: nowrap; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--faint); }
+  .on .dot { background: var(--ok); }
+  .card { background: var(--surface); border-radius: 16px; padding: 14px; margin-bottom: 12px; }
+  .song-title { font-size: 21px; font-weight: 700; margin: 0; }
+  .song-sub { color: var(--dim); font-size: 14px; margin: 2px 0 10px; }
+  .prompt { color: var(--led); font-weight: 700; font-size: 20px; min-height: 28px; }
+  .bar { height: 8px; background: var(--raised); border-radius: 4px; overflow: hidden; margin: 8px 0 4px; }
+  .bar > div { height: 100%; width: 0; background: var(--accent); transition: width .5s linear; }
+  .times { display: flex; justify-content: space-between; color: var(--dim); font-size: 13px; }
+  .stats { color: var(--dim); font-size: 13px; margin-top: 6px; }
+  .stats b { color: var(--text); }
+  .transport { display: flex; justify-content: center; gap: 12px; margin: 12px 0 2px; }
+  button { font: inherit; color: var(--text); background: var(--raised); border: 0; border-radius: 999px;
+    min-width: 52px; height: 52px; padding: 0 16px; cursor: pointer; }
+  button:active { filter: brightness(1.3); }
+  button.primary { background: var(--accent); min-width: 64px; font-size: 22px; }
+  .row { display: flex; align-items: center; gap: 10px; margin: 10px 0; }
+  .row label { color: var(--dim); font-size: 14px; width: 74px; flex: none; }
+  .seg { display: flex; flex: 1; background: var(--raised); border-radius: 999px; padding: 3px; }
+  .seg button { flex: 1; height: 38px; min-width: 0; background: transparent; font-size: 14px; color: var(--dim); }
+  .seg button.sel { background: var(--surface); color: var(--text); }
+  .stepper { display: flex; align-items: center; gap: 8px; flex: 1; }
+  .stepper button { height: 38px; min-width: 44px; }
+  .stepper span { flex: 1; text-align: center; font-weight: 700; }
+  input[type=range] { flex: 1; accent-color: var(--accent); }
+  .search { width: 100%; height: 44px; border-radius: 12px; border: 1px solid var(--border);
+    background: var(--bg); color: var(--text); padding: 0 14px; font: inherit; }
+  .crumbs { display: flex; flex-wrap: wrap; gap: 4px; margin: 10px 0 4px; font-size: 14px; }
+  .crumbs a { color: var(--accent); text-decoration: none; }
+  .crumbs span { color: var(--faint); }
+  ul { list-style: none; margin: 0; padding: 0; }
+  li { display: flex; align-items: center; gap: 12px; padding: 10px 6px; border-bottom: 1px solid var(--border); cursor: pointer; }
+  li:last-child { border-bottom: 0; }
+  li .icon { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; background: var(--raised); flex: none; }
+  li .t { flex: 1; min-width: 0; }
+  li .t div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  li .t .s { color: var(--dim); font-size: 13px; }
+  li.cur { background: #ff5a6a1c; border-radius: 10px; }
+  .hint { color: var(--faint); font-size: 13px; text-align: center; padding: 10px; }
+  h2 { font-size: 16px; margin: 0 0 8px; color: var(--dim); font-weight: 600; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="logo">♪</div>
+    <h1>Piano Coach</h1>
+    <span class="chip" id="piano"><span class="dot"></span><span id="pianoName">piano</span></span>
+  </header>
+
+  <section class="card">
+    <p class="song-title" id="title">—</p>
+    <p class="song-sub" id="sub"></p>
+    <div class="prompt" id="prompt"></div>
+    <div class="bar"><div id="progress"></div></div>
+    <div class="times"><span id="pos">0:00</span><span id="state"></span><span id="dur">0:00</span></div>
+    <div class="stats" id="stats"></div>
+    <div class="transport">
+      <button title="Previous song" onclick="cmd('prev')">⏮</button>
+      <button title="Restart" onclick="cmd('restart')">↺</button>
+      <button class="primary" id="play" title="Play / pause" onclick="cmd('playpause')">▶</button>
+      <button title="Stop" onclick="cmd('stop')">■</button>
+      <button title="Next song" onclick="cmd('next')">⏭</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="row"><label>Mode</label>
+      <div class="seg" id="mode">
+        <button data-v="learn">Learn</button><button data-v="follow">Follow</button><button data-v="listen">Listen</button>
+      </div></div>
+    <div class="row"><label>Hands</label>
+      <div class="seg" id="hands">
+        <button data-v="both">Both</button><button data-v="right">Right</button><button data-v="left">Left</button>
+      </div></div>
+    <div class="row"><label>Tempo</label>
+      <div class="stepper"><button onclick="tempo(-10)">−</button><span id="tempo">100%</span><button onclick="tempo(10)">+</button></div></div>
+    <div class="row"><label>Notes from</label>
+      <div class="seg" id="sound">
+        <button data-v="0">Piano</button><button data-v="1">Speaker</button><button data-v="2">Both</button>
+      </div></div>
+    <div class="row"><label>Volume</label><input type="range" id="vol" min="0" max="100" step="5"></div>
+  </section>
+
+  <section class="card">
+    <input class="search" id="q" type="search" placeholder="Search: pinyin initials (xxx), pinyin or text" autocomplete="off">
+    <div class="crumbs" id="crumbs"></div>
+    <ul id="list"></ul>
+    <div class="hint" id="hint"></div>
+  </section>
+
+  <section class="card">
+    <h2>Piano lights</h2>
+    <div class="transport">
+      <button onclick="cmd('ledtest')">Light all keys</button>
+      <button onclick="cmd('alloff')">All off</button>
+    </div>
+  </section>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const api = (path) => fetch(path).then((r) => r.ok ? r.json() : Promise.reject(r.status));
+let st = null, dir = null, cur = '';
+// Folder listings and searches race over a slow link: only the latest may
+// fill the list.
+let gen = 0;
+
+function cmd(c, v) {
+  const q = 'c=' + encodeURIComponent(c) + (v === undefined ? '' : '&v=' + encodeURIComponent(v));
+  return api('/api/cmd?' + q).then(refresh).catch(() => {});
+}
+function tempo(d) { if (st) cmd('tempo', st.tempo + d); }
+for (const id of ['mode', 'hands', 'sound']) {
+  $(id).addEventListener('click', (e) => { const v = e.target.dataset.v; if (v !== undefined) cmd(id, v); });
+}
+$('vol').addEventListener('change', (e) => cmd('vol', e.target.value));
+
+const STATE = { stopped: 'stopped', playing: 'playing', waiting: 'waiting for you', paused: 'paused', finished: 'finished' };
+function seg(id, v) { for (const b of $(id).children) b.classList.toggle('sel', b.dataset.v === String(v)); }
+
+function render() {
+  if (!st) return;
+  $('piano').classList.toggle('on', st.piano.connected);
+  $('pianoName').textContent = st.piano.connected ? st.piano.name : (st.piano.name || 'searching…');
+  $('title').textContent = st.song ? st.song.title : (st.sd ? 'Pick a song below' : 'No microSD card');
+  $('sub').textContent = st.song ? [st.song.artist, st.song.folder].filter(Boolean).join(' · ') : '';
+  $('prompt').textContent = st.error ? st.error : (st.state === 'waiting' && st.prompt ? 'Play ' + st.prompt : '');
+  $('progress').style.width = (st.dur ? 100 * st.pos / st.dur : 0) + '%';
+  $('pos').textContent = st.posText; $('dur').textContent = st.durText;
+  $('state').textContent = STATE[st.state] || '';
+  $('play').textContent = (st.state === 'playing' || st.state === 'waiting') ? '❚❚' : '▶';
+  const s = st.stats;
+  $('stats').innerHTML = st.mode === 'listen' ? '' :
+    `accuracy <b>${s.acc}%</b> · ${st.mode === 'learn' ? 'chords' : 'notes'} <b>${st.mode === 'learn' ? s.done : s.hits}/${s.total}</b> · streak <b>${s.streak}</b>`;
+  seg('mode', st.mode); seg('hands', st.hands); seg('sound', st.sound);
+  $('tempo').textContent = st.tempo + '%';
+  if (document.activeElement !== $('vol')) $('vol').value = st.volume;
+  if (st.song && st.song.path !== cur) { cur = st.song.path; markCurrent(); }
+}
+function refresh() { return api('/api/state').then((s) => { st = s; render(); }).catch(() => {}); }
+
+function item(icon, title, sub, onclick, path) {
+  const li = document.createElement('li');
+  li.innerHTML = `<div class="icon">${icon}</div><div class="t"><div></div><div class="s"></div></div>`;
+  li.querySelector('.t div').textContent = title;
+  li.querySelector('.s').textContent = sub || '';
+  li.onclick = onclick;
+  if (path) li.dataset.path = path;
+  return li;
+}
+function markCurrent() { for (const li of $('list').children) li.classList.toggle('cur', li.dataset.path === cur); }
+function play(path) { api('/api/play?p=' + encodeURIComponent(path)).then(refresh).catch(() => {}); }
+
+function crumbs(path) {
+  const c = $('crumbs'); c.innerHTML = '';
+  const parts = path ? path.split('/') : [];
+  const link = (label, p) => { const a = document.createElement('a'); a.href = '#'; a.textContent = label;
+    a.onclick = (e) => { e.preventDefault(); openDir(p); }; c.appendChild(a); };
+  link('Library', '');
+  parts.forEach((p, i) => { const s = document.createElement('span'); s.textContent = '›'; c.appendChild(s);
+    link(p.replace(/（\d+）$/, ''), parts.slice(0, i + 1).join('/')); });
+}
+function openDir(path) {
+  $('q').value = '';
+  const my = ++gen;
+  api('/api/dir?p=' + encodeURIComponent(path)).then((d) => {
+    if (my !== gen) return;
+    dir = d; crumbs(d.path);
+    const ul = $('list'); ul.innerHTML = '';
+    for (const f of d.dirs) ul.appendChild(item('📁', f.title, f.sub, () => openDir((d.path ? d.path + '/' : '') + f.name)));
+    for (const s of d.songs) { const p = (d.path ? d.path + '/' : '') + s.name; ul.appendChild(item('♪', s.title, s.sub, () => play(p), p)); }
+    $('hint').textContent = d.dirs.length + d.songs.length ? '' : 'Empty folder';
+    markCurrent();
+  }).catch(() => { $('hint').textContent = 'Cannot read the card'; });
+}
+let timer = 0;
+$('q').addEventListener('input', () => {
+  clearTimeout(timer);
+  timer = setTimeout(() => {
+    const q = $('q').value.trim();
+    if (!q) { openDir(dir ? dir.path : ''); return; }
+    const my = ++gen;
+    api('/api/search?q=' + encodeURIComponent(q)).then((r) => {
+      if (my !== gen) return;
+      $('crumbs').innerHTML = '';
+      const ul = $('list'); ul.innerHTML = '';
+      for (const s of r.results) ul.appendChild(item('♪', s.title, s.sub, () => play(s.path), s.path));
+      $('hint').textContent = !r.ready ? 'Still reading the card — try again in a moment'
+        : r.results.length ? r.results.length + ' matches' : 'No matches';
+      markCurrent();
+    });
+  }, 250);
+});
+
+refresh().then(() => openDir(st && st.playlist ? st.playlist.dir : ''));
+setInterval(refresh, 1000);
+</script>
+</body>
+</html>

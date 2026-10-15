@@ -3690,6 +3690,7 @@ dependencies = [
  "embuild",
  "esp-idf-svc",
  "log",
+ "miniz_oxide 0.8.9",
  "piano-core",
  "slint",
  "slint-build",

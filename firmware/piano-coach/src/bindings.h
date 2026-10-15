@@ -29,6 +29,13 @@
 # include "esp_lcd_io_i80.h"
 # include "driver/i2c_master.h"
 #elif CONFIG_IDF_TARGET_ESP32
+# if __has_include("audiokit_bsp.h")
+// ESP32-Audio-Kit: ES8388 codec and microSD (components/audiokit_bsp).
+#  include "audiokit_bsp.h"
+#  include "esp_codec_dev.h"
+#  include "driver/gpio.h"
+#  include "driver/rtc_io.h"
+# endif
 // ESP-WROVER-KIT: ILI9341 / ST7789V on SPI, driven by esp_lcd's ST7789 driver.
 # include "esp_lcd_panel_vendor.h"
 # include "driver/i2c_master.h" // board/cst816.rs is built for all small boards

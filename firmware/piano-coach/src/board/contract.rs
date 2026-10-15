@@ -23,6 +23,31 @@ const _: fn(&Status) -> anyhow::Result<()> = imp::bt_controller_start;
 /// Button presses since the last call (empty for boards without buttons).
 const _: fn() -> Vec<Button> = imp::poll_buttons;
 
+// ---- HAS=sd / HAS=speaker -----------------------------------------------------
+
+/// Mount the microSD card at /sdcard.
+#[cfg(has_sd)]
+const _: fn() -> bool = imp::mount_sd;
+
+#[cfg(has_speaker)]
+mod speaker {
+    use super::super::imp;
+    use esp_idf_svc::sys::bsp;
+
+    /// Speaker output: sample rate (a multiple of the synth's 24 kHz) and channels.
+    const _: u32 = imp::AUDIO_OUT_RATE;
+    const _: u32 = imp::AUDIO_CHANNELS;
+    /// Synth master gain for this speaker (the synth's soft clip keeps loud
+    /// chords from wrapping): 0.8 is the synth's own default.
+    const _: f32 = imp::SYNTH_GAIN;
+    /// The speaker's esp_codec_dev handle (codec + I2S up), or None.
+    /// Called once, from the audio thread.
+    const _: fn() -> Option<bsp::esp_codec_dev_handle_t> = imp::speaker_codec;
+    /// Speaker amplifier on/off around playback (no-op where the codec driver
+    /// switches it).
+    const _: fn(bool) = imp::speaker_enable;
+}
+
 // ---- UI=full: framebuffer boards -------------------------------------------
 
 #[cfg(ui_full)]
@@ -41,11 +66,6 @@ mod full {
     const _: u32 = imp::WINDOW_HEIGHT;
     const _: f32 = imp::UI_SCALE;
     const _: RenderingRotation = imp::RENDERING_ROTATION;
-    /// Speaker output: sample rate (a multiple of the synth's 24 kHz) and channels.
-    const _: u32 = imp::AUDIO_OUT_RATE;
-    const _: u32 = imp::AUDIO_CHANNELS;
-    /// Mount the microSD card at /sdcard.
-    const _: fn() -> bool = imp::mount_sd;
     /// Panel + touch up, both framebuffers filled with the RGB565 background.
     const _: fn(u16) -> anyhow::Result<Display> = imp::display_init;
     /// Publish shadow rows y0..y1 already copied into `fb[back]`.
@@ -58,10 +78,13 @@ mod full {
     const _: fn(usize, usize, usize, usize) -> (usize, usize) = imp::fb_rows;
     /// Install the USB host stack and power the host port.
     const _: fn() -> anyhow::Result<()> = imp::usb_host_start;
-    /// Speaker amplifier on/off around playback (no-op where the codec driver
-    /// switches it).
-    const _: fn(bool) = imp::speaker_enable;
 }
+
+// ---- UI=headless: no display --------------------------------------------------
+
+/// A status LED (on / off).
+#[cfg(ui_headless)]
+const _: fn(bool) = imp::status_led;
 
 // ---- UI=mini: small SPI panels ----------------------------------------------
 

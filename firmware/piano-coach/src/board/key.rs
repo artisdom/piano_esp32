@@ -42,7 +42,10 @@ impl Key {
             let mut c: bsp::gpio_config_t = core::mem::zeroed();
             c.pin_bit_mask = 1u64 << self.gpio;
             c.mode = bsp::gpio_mode_t_GPIO_MODE_INPUT;
-            c.pull_up_en = bsp::gpio_pullup_t_GPIO_PULLUP_ENABLE;
+            // GPIO34–39 (ESP32) are input-only without pull-ups.
+            if !(34..=39).contains(&self.gpio) || !cfg!(target_arch = "xtensa") {
+                c.pull_up_en = bsp::gpio_pullup_t_GPIO_PULLUP_ENABLE;
+            }
             bsp::gpio_config(&c);
         }
         self.ready = true;

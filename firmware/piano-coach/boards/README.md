@@ -4,7 +4,7 @@ Piano Coach builds for one board at a time. Each board is:
 
 | Piece | Where | What |
 |---|---|---|
-| Profile | `boards/<board>/board.env` | `FEATURE`, `MCU`, ESP-IDF source (`ESP_IDF_VERSION` *or* `IDF_PATH_DEFAULT`), `FLASHER`, `UI` (`full` / `mini`), `HAS` (`usb sd speaker`), optional `TARGET` (Rust target, default `riscv32imafc-esp-espidf`), `TOOLCHAIN` (rustup toolchain, e.g. `esp198` for Xtensa), `PICOLIBC=1`, `PATCH_EXFAT=1`, `SONGPACK_ARGS` (song pack budget), `CARGO_CONFIG` (extra `--config` values) |
+| Profile | `boards/<board>/board.env` | `FEATURE`, `MCU`, ESP-IDF source (`ESP_IDF_VERSION` *or* `IDF_PATH_DEFAULT`), `FLASHER`, `UI` (`full` / `mini` / `headless`), `HAS` (`usb sd speaker`), optional `TARGET` (Rust target, default `riscv32imafc-esp-espidf`), `TOOLCHAIN` (rustup toolchain, e.g. `esp198` for Xtensa), `PICOLIBC=1`, `PATCH_EXFAT=1`, `SONGPACK_ARGS` (song pack budget), `CARGO_CONFIG` (extra `--config` values) |
 | ESP-IDF config | `boards/<board>/sdkconfig.defaults` | the board's full sdkconfig baseline |
 | Native components | `boards/<board>/esp-idf-components.toml` | BSP and other components (paths relative to the file) |
 | BSP | `components/<bsp>/` | vendored or forked board support package (no LVGL); small boards may use ESP-IDF's own drivers or a registry component instead |
@@ -47,6 +47,7 @@ profile directory). A bare `cargo build` builds the Tab5 (defaults in
 | ESP32-1732S019 | `1732s019` | ESP32-S3 (Xtensa) | v5.5.3 | 1.9″ 320×170 ST7789 SPI, minimal UI, no touch | native BLE |
 | ESP32-2424S012C | `2424s012` | ESP32-C3 | v5.5.3 | 1.28″ round 240×240 GC9A01 SPI, minimal UI, CST816D touch | native BLE |
 | ESP-WROVER-KIT v4.1 | `wroverkit` | ESP32 (Xtensa) | v5.5.3 | 3.2″ 320×240 ILI9341 / ST7789V SPI (ID probe), minimal UI at 1.25× | native BLE |
+| Ai-Thinker ESP32-Audio-Kit | `audiokit` | ESP32 (Xtensa) | v5.5.3 | none: headless (keys, tones, Wi-Fi web page) | native BLE |
 | LILYGO T-Display-S3 | `tdisplays3` | ESP32-S3 (Xtensa) | v5.5.3 | 1.9″ 320×170 ST7789 on an 8-bit i80 bus, minimal UI, two keys, optional CST816 touch | native BLE |
 
 ## Porting a new board — checklist
@@ -77,6 +78,14 @@ profile directory). A bare `cargo build` builds the Tab5 (defaults in
    `SONGPACK_ARGS` budget that fits it, and check the UI in
    `tests/mini_preview` (add the size there if it is new).
 
+   UI=headless (no display): `status_led`; `poll_buttons` reports numbered
+   keys as `Button::Keypad(n)` / `KeypadHold(n)`.
+
+   HAS=sd: `mount_sd`. HAS=speaker: `speaker_codec` (an esp_codec_dev
+   handle), `speaker_enable`, `AUDIO_OUT_RATE` / `AUDIO_CHANNELS`
+   and `SYNTH_GAIN` (the synth's master gain for that speaker; 0.8 is the
+   synth's default).
+
    UI=full (framebuffer panel), additionally:
    * geometry — `FRAME_WIDTH/HEIGHT` (as the panel scans), `WINDOW_WIDTH/HEIGHT`
      (physical landscape), `UI_SCALE` (logical canvas = 1280 wide:
@@ -84,8 +93,7 @@ profile directory). A bare `cargo build` builds the Tab5 (defaults in
      `RENDERING_ROTATION`, `fb_index`, `fb_rows`, `touch_to_logical`;
    * `display_init` (panel, touch, two framebuffers → `board::adopt`),
      `present`;
-   * `mount_sd` (at `/sdcard`), `usb_host_start`, `speaker_enable`,
-     `AUDIO_OUT_RATE` (multiple of 24 kHz) / `AUDIO_CHANNELS`.
+   * `usb_host_start`.
 4. **Feature + selection** lines in `Cargo.toml` and `src/board/mod.rs`
    (and a `src/bindings.h` branch for the target).
 5. **Check layout** on the PC: add the board's `(name, width, height, scale)`

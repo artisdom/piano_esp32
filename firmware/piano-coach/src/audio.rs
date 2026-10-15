@@ -33,7 +33,9 @@ pub static VOLUME: AtomicI32 = AtomicI32::new(70);
 pub use crate::player::SharedSynth;
 
 pub fn start() -> SharedSynth {
-    let synth = Arc::new(Mutex::new(Synth::new(SAMPLE_RATE)));
+    let mut sy = Synth::new(SAMPLE_RATE);
+    sy.volume = crate::board::SYNTH_GAIN;
+    let synth = Arc::new(Mutex::new(sy));
     let s = synth.clone();
     // Core 1, above the UI/player priority: rendering a busy screen must
     // never starve the audio DMA (underruns are audible). Change only those
@@ -49,6 +51,11 @@ pub fn start() -> SharedSynth {
         cfg.pin_to_core = 1;
         cfg.thread_name = c"audio".as_ptr();
         cfg.inherit_cfg = false;
+        // It never writes flash: PSRAM stack where the board allows it.
+        #[cfg(esp_idf_spiram_allow_stack_external_memory)]
+        {
+            cfg.stack_alloc_caps = esp_idf_svc::sys::MALLOC_CAP_SPIRAM | esp_idf_svc::sys::MALLOC_CAP_8BIT;
+        }
         let _ = esp_pthread_set_cfg(&cfg);
         let r = std::thread::Builder::new().stack_size(12 * 1024).spawn(move || run(s));
         if had {
@@ -65,19 +72,10 @@ pub fn start() -> SharedSynth {
 }
 
 unsafe fn run(synth: SharedSynth) {
-    // The codec sits on the BSP's I2C bus, created by the display bring-up.
-    while !board::DISPLAY_UP.load(Ordering::SeqCst) {
-        std::thread::sleep(Duration::from_millis(50));
-    }
-    if bsp::bsp_audio_init(core::ptr::null()) != 0 {
-        warn!("audio: bsp_audio_init failed — speaker off");
+    let Some(spk) = board::speaker_codec() else {
+        warn!("audio: no speaker codec — speaker off");
         return;
-    }
-    let spk = bsp::bsp_audio_codec_speaker_init();
-    if spk.is_null() {
-        warn!("audio: speaker codec init failed — speaker off");
-        return;
-    }
+    };
     info!(
         "audio: speaker codec up (synth {SAMPLE_RATE} Hz → {} Hz × {CHANNELS} ch)",
         board::AUDIO_OUT_RATE

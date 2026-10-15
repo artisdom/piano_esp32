@@ -62,8 +62,8 @@ fn route(m: Msg, out: &Sender<Msg>, synth: Option<&SharedSynth>) {
     }
 }
 
-// The mini UI has no seek bar, tempo slider or A-B loop.
-#[cfg_attr(ui_mini, allow(dead_code))]
+// The mini and headless UIs have no seek bar or A-B loop.
+#[cfg_attr(any(ui_mini, ui_headless), allow(dead_code))]
 pub enum Cmd {
     Load(PathBuf),
     PlayPause,
@@ -119,10 +119,8 @@ pub fn start(
         ..Default::default()
     }));
     let sh = shared.clone();
-    std::thread::Builder::new()
-        .name("player".into())
-        .stack_size(12 * 1024)
-        .spawn(move || run(cmds, keys, out, sh, initial, synth, nav))
+    // The player never writes flash: its stack may live in PSRAM.
+    crate::threads::spawn_ext("player", 12 * 1024, move || run(cmds, keys, out, sh, initial, synth, nav))
         .expect("spawn player");
     shared
 }

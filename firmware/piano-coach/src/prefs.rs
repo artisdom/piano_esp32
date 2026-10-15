@@ -30,6 +30,24 @@ pub fn get_bool(key: &str, default: bool) -> bool {
     get_i32(key).map(|v| v != 0).unwrap_or(default)
 }
 
+#[allow(dead_code)] // not every UI has toggles
 pub fn set_bool(key: &str, v: bool) {
     set_i32(key, v as i32);
+}
+
+#[allow(dead_code)] // only the headless UI keeps strings
+pub fn get_str(key: &str) -> Option<String> {
+    let guard = NVS.lock().unwrap();
+    let nvs = guard.as_ref()?;
+    let mut buf = [0u8; 512];
+    nvs.get_str(key, &mut buf).ok().flatten().map(str::to_string)
+}
+
+#[allow(dead_code)]
+pub fn set_str(key: &str, v: &str) {
+    if let Some(nvs) = NVS.lock().unwrap().as_mut() {
+        if let Err(e) = nvs.set_str(key, v) {
+            warn!("prefs: save {key}: {e}");
+        }
+    }
 }

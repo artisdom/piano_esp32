@@ -18,6 +18,7 @@ piano protocol (USB `GZU-tek CHMidi-2.3`, BLE `GZUT-MIDI`, BT audio
 | **Search by pinyin**<br>Find any song by pinyin initials (`xxx` → 小星星), full pinyin or Latin text on the on-screen keyboard. | ![Search](doc/images/search.png) |
 | **Song globe**<br>Every song as a dot on a spinning 3D sphere, coloured by category — spin it and tap a dot to pick a song. | ![Song globe](doc/images/globe.png) |
 | **Settings**<br>USB cable or Bluetooth, notes from the piano and/or the board's speaker (built-in piano synth), sheet colours and names, learning options, LED test, brightness, shut down. | ![Settings](doc/images/settings.png) |
+| **No screen? Use your phone**<br>On the ESP32-Audio-Kit the board opens its own Wi-Fi network; join it and a page opens to browse, search and start songs and to set mode, hands, tempo and volume. Six keys and short tones work without a phone; the board's speaker can play the notes too. | ![Phone page](doc/images/web.png) |
 | **Small boards: minimal UI**<br>A three-row wheel menu and a big "what to play next" screen for 1.9″ bars and a 1.28″ round watch-like touch screen; songs stored in flash, piano over Bluetooth; one or two keys, touch, or the piano's lowest keys as remote control. | ![Small boards](doc/images/small-boards.png) |
 
 ## Supported boards
@@ -30,6 +31,7 @@ piano protocol (USB `GZU-tek CHMidi-2.3`, BLE `GZUT-MIDI`, BT audio
 | LILYGO T-Display-S3 | ESP32-S3 | 1.9″ 320×170 (touch optional) | Bluetooth | all 2449 in flash |
 | ESP-WROVER-KIT v4.1 | ESP32 | 3.2″ 320×240 | Bluetooth | 776 in flash |
 | ESP32-2424S012C | ESP32-C3 | 1.28″ round 240×240 touch | Bluetooth | 776 in flash |
+| Ai-Thinker ESP32-Audio-Kit | ESP32 + ES8388 | none — keys + phone web page | Bluetooth | microSD |
 
 The screenshots are rendered on a PC by `firmware/piano-coach/tools/make_screenshots.sh`
 with the firmware's own UI code, fonts and engraver from the real song library.

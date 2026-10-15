@@ -46,6 +46,7 @@ pub const RENDERING_ROTATION: RenderingRotation = RenderingRotation::Rotate270;
 /// ES8388 + NS4150B (mono speaker).
 pub const AUDIO_OUT_RATE: u32 = 24_000;
 pub const AUDIO_CHANNELS: u32 = 1;
+pub const SYNTH_GAIN: f32 = 0.8;
 
 /// Rotated 270°: landscape x runs up the portrait panel (panel y = 1279 − x),
 /// landscape y runs across it (panel x = y). Same mapping as touch.
@@ -63,6 +64,22 @@ pub fn touch_to_logical(x: u16, y: u16) -> LogicalPosition {
 }
 
 /// NS4150B enable is on IO expander 0x43 P1.
+/// The BSP's speaker codec; it sits on the I2C bus the display bring-up
+/// creates, so this waits for the display first.
+pub fn speaker_codec() -> Option<bsp::esp_codec_dev_handle_t> {
+    while !super::DISPLAY_UP.load(std::sync::atomic::Ordering::SeqCst) {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    unsafe {
+        if bsp::bsp_audio_init(core::ptr::null()) != 0 {
+            warn!("audio: bsp_audio_init failed");
+            return None;
+        }
+        let spk = bsp::bsp_audio_codec_speaker_init();
+        (!spk.is_null()).then_some(spk)
+    }
+}
+
 pub fn speaker_enable(on: bool) {
     unsafe {
         let _ = bsp::bsp_feature_enable(bsp::bsp_feature_t_BSP_FEATURE_SPEAKER, on);

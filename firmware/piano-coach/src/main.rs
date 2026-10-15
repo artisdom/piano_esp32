@@ -22,12 +22,17 @@ mod link;
 mod player;
 mod prefs;
 mod songs;
+mod threads;
 #[cfg(ui_full)]
 mod store;
 #[cfg(ui_full)]
 mod ui;
 #[cfg(ui_mini)]
 mod ui_mini;
+#[cfg(ui_headless)]
+mod headless;
+#[cfg(ui_headless)]
+mod web;
 #[cfg(has_usb)]
 mod usb_midi;
 
@@ -100,6 +105,20 @@ fn run_app() {
             sd_ok,
         };
         spawn_ui(96 * 1024, move || ui::run(ctx));
+    }
+    #[cfg(ui_headless)]
+    {
+        let (nav_tx, nav_rx) = channel();
+        let shared = player::start(cmd_rx, key_rx, out_tx, player::saved_options(), synth.clone(), Some(nav_tx));
+        let ctx = headless::Ctx {
+            cmds: cmd_tx,
+            shared,
+            status,
+            nav: nav_rx,
+            synth,
+            sd_ok,
+        };
+        spawn_ui(10 * 1024, move || headless::run(ctx));
     }
     #[cfg(ui_mini)]
     {
