@@ -316,3 +316,44 @@ fn parses_whole_library() {
     assert!(ok > 0);
     let _ = smf::Division::Ppq(1);
 }
+
+#[test]
+fn ble_midi_packets() {
+    use piano_core::blemidi::{decode, Packer};
+    // Piano notifications (captured in doc/test_log_2026-10-15.md).
+    let mut got: Vec<Vec<u8>> = Vec::new();
+    decode(&[0x80, 0x80, 0x90, 0x15, 0x37], |m| got.push(m.to_vec()));
+    decode(&[0x80, 0x80, 0x80, 0x15, 0x00], |m| got.push(m.to_vec()));
+    decode(
+        &[0x80, 0x80, 0xf0, 0x52, 0x4b, 0x15, 0x00, 0x00, 0x00, 0x80, 0xf7],
+        |m| got.push(m.to_vec()),
+    );
+    // Standard multi-message packet: ts+status, ts+running status, bare
+    // running status, one-byte real-time.
+    decode(
+        &[0x80, 0x81, 0x90, 60, 1, 0x82, 64, 2, 67, 3, 0x83, 0xf8, 0x84, 0xc0, 5],
+        |m| got.push(m.to_vec()),
+    );
+    assert_eq!(
+        got,
+        vec![
+            vec![0x90, 0x15, 0x37],
+            vec![0x80, 0x15, 0x00],
+            vec![0xf0, 0x52, 0x4b, 0x15, 0x00, 0x00, 0x00, 0xf7],
+            vec![0x90, 60, 1],
+            vec![0x90, 64, 2],
+            vec![0x90, 67, 3],
+            vec![0xf8],
+            vec![0xc0, 5],
+        ]
+    );
+
+    // Outgoing: one 80 80 header, full status bytes, size-limited.
+    let mut p = Packer::new(9);
+    assert!(p.push(&[0x90, 60, 1]).is_none());
+    assert!(p.push(&[0xc0, 0, 0]).is_none()); // program change is 2 bytes
+    let full = p.push(&[0x90, 64, 1]).expect("third message overflows 9 bytes");
+    assert_eq!(full, vec![0x80, 0x80, 0x90, 60, 1, 0xc0, 0]);
+    assert_eq!(p.flush().unwrap(), vec![0x80, 0x80, 0x90, 64, 1]);
+    assert!(p.flush().is_none());
+}

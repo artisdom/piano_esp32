@@ -15,7 +15,6 @@ use crate::link::KeyEvent;
 
 pub enum Cmd {
     Load(PathBuf),
-    Play,
     PlayPause,
     Stop,
     Restart,
@@ -121,18 +120,12 @@ fn run(cmds: Receiver<Cmd>, keys: Receiver<KeyEvent>, out: Sender<Msg>, sh: Shar
                         }
                     }
                 }
-                Cmd::Play => {
-                    if let Some(e) = engine.as_mut() {
-                        // Host-played notes use the acoustic piano tone.
-                        buf.push([0xC0, 0, 0]);
-                        e.play(now_ms(), &mut buf);
-                    }
-                }
                 Cmd::PlayPause => {
                     if let Some(e) = engine.as_mut() {
                         match e.state() {
                             State::Playing | State::Waiting => e.pause(&mut buf),
                             _ => {
+                                // Host-played notes use the acoustic piano tone.
                                 buf.push([0xC0, 0, 0]);
                                 e.play(now_ms(), &mut buf);
                             }

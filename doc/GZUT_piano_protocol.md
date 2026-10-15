@@ -71,7 +71,8 @@ Behaviour notes:
   keys lit; the earliest events were lost. The same 88 notes sent as
   groups of 8 with 20 ms gaps all lit. Pace USB output to roughly
   **≤ 8 messages per 20 ms** when sending large LED updates (the exact
-  limit was not searched for).
+  limit was not searched for). The Tab5 firmware sends 8 events per
+  bulk transfer, 12 ms apart, and lights all 88 keys **[verified]**.
 
 USB-MIDI event packet format (for ESP32-S2/S3 USB host or raw libusb):
 `[CIN | cable<<4, status, data1, data2]`, e.g. Note On C4 vel 1 on
@@ -149,6 +150,9 @@ Stacks that encode real timestamps will mostly fail:
   Observed: no LED lit from 9 writes. Workaround: talk GATT directly
   (run `bluetoothd -P midi`, or use a user-space BLE library) and build
   packets yourself.
+* **ESP32-P4 + NimBLE (Tab5 firmware, 2026-10-15)**: raw
+  write-without-response packets `80 80 <midi…>` up to 257 bytes (MTU
+  260) drive all 88 LEDs and Learn mode reliably **[verified]**.
 * **Android `MidiManager.openBluetoothDevice`** uses the same timestamped
   encoding **[hypothesis: same failure; affects BleUsbMidiPlayer]**.
 * Web Bluetooth apps that write `80 80 …` themselves (pianoplay fork,

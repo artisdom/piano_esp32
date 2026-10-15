@@ -8,6 +8,10 @@ Host/firmware work for the GZUT 88-key LED digital piano
   for Linux/Python/ESP32.
 * [doc/test_log_2026-10-15.md](doc/test_log_2026-10-15.md) — raw captures
   and live test results the protocol document is based on.
+* [doc/tab5_firmware.md](doc/tab5_firmware.md) — **Piano Coach**, the Rust
+  play & learn firmware for the M5Stack Tab5 (`firmware/tab5`,
+  `firmware/piano-core`): USB or Bluetooth, Learn / Follow / Listen modes,
+  songs from microSD.
 
 Quick start (USB, Linux):
 

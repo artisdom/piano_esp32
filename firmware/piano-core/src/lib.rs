@@ -5,8 +5,10 @@
 //! * [`engine`] — Listen / Learn / Follow state machine producing the MIDI
 //!   to send to the GZUT piano.
 //! * [`usbmidi`] — USB-MIDI 1.0 event packets.
+//! * [`blemidi`] — BLE-MIDI packets in the form the GZUT piano accepts.
 //! * [`library`] — sorting and naming of SD-card library entries.
 
+pub mod blemidi;
 pub mod engine;
 pub mod library;
 pub mod smf;

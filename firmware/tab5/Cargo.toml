@@ -48,3 +48,12 @@ slint-build = { version = "=1.18.1", features = ["sdf-fonts"] }
 component_dirs = ["components/m5stack_tab5_noglib"]
 bindings_header = "src/bindings.h"
 bindings_module = "bsp"
+
+# Bluetooth LE (BLE-MIDI mode): the NimBLE host runs here and talks to the
+# BLE controller on the Tab5's ESP32-C6 over SDIO via ESP-Hosted
+# (esp_wifi_remote is ESP-Hosted's required companion component).
+[[package.metadata.esp-idf-sys.extra_components]]
+remote_component = { name = "espressif/esp_wifi_remote", version = "~1.6" }
+
+[[package.metadata.esp-idf-sys.extra_components]]
+remote_component = { name = "espressif/esp_hosted", version = "~2.12" }

@@ -8,7 +8,11 @@ use std::sync::Mutex;
 /// A received channel message from the piano.
 #[derive(Debug, Clone, Copy)]
 pub enum KeyEvent {
-    Down { key: u8, vel: u8 },
+    Down {
+        key: u8,
+        #[allow(dead_code)] // kept for future velocity-aware scoring
+        vel: u8,
+    },
     Up { key: u8 },
 }
 
