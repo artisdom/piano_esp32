@@ -62,6 +62,8 @@ fn route(m: Msg, out: &Sender<Msg>, synth: Option<&SharedSynth>) {
     }
 }
 
+// The mini UI has no seek bar, tempo slider or A-B loop.
+#[cfg_attr(ui_mini, allow(dead_code))]
 pub enum Cmd {
     Load(PathBuf),
     PlayPause,

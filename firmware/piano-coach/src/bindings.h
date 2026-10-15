@@ -28,6 +28,10 @@
 # include "esp_lcd_panel_vendor.h"
 # include "esp_lcd_io_i80.h"
 # include "driver/i2c_master.h"
+#elif CONFIG_IDF_TARGET_ESP32
+// ESP-WROVER-KIT: ILI9341 / ST7789V on SPI, driven by esp_lcd's ST7789 driver.
+# include "esp_lcd_panel_vendor.h"
+# include "driver/i2c_master.h" // board/cst816.rs is built for all small boards
 #elif CONFIG_IDF_TARGET_ESP32C3
 // ESP32-2424S012: GC9A01 on SPI (managed component), CST816D on I2C.
 # include "esp_lcd_gc9a01.h"

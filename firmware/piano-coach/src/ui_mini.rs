@@ -503,6 +503,9 @@ pub fn run(ctx: Ctx) -> anyhow::Result<()> {
     }))
     .map_err(|e| anyhow::anyhow!("set_platform: {e:?}"))?;
     let ui = MiniApp::new().map_err(|e| anyhow::anyhow!("slint ui: {e}"))?;
+    window.dispatch_event(WindowEvent::ScaleFactorChanged {
+        scale_factor: board::MINI_SCALE,
+    });
     window.set_size(PhysicalSize::new(LCD_WIDTH as u32, LCD_HEIGHT as u32));
     ui.show().map_err(|e| anyhow::anyhow!("show: {e}"))?;
     let vm = ui.global::<MiniVM>();
@@ -618,7 +621,7 @@ pub fn run(ctx: Ctx) -> anyhow::Result<()> {
 
         for n in navs {
             if let Nav::Tap(x, y) = n {
-                let position = LogicalPosition::new(x, y);
+                let position = LogicalPosition::new(x / board::MINI_SCALE, y / board::MINI_SCALE);
                 window.dispatch_event(WindowEvent::PointerPressed {
                     position,
                     button: PointerEventButton::Left,

@@ -32,6 +32,8 @@ pub const CAPS: Caps = Caps {
 
 pub const LCD_WIDTH: usize = 320;
 pub const LCD_HEIGHT: usize = 170;
+/// Logical UI pixels per panel pixel: 1 = the layout's native size.
+pub const UI_SCALE: f32 = 1.0;
 pub const ROUND: bool = false;
 
 const BOOT_KEY: i32 = 0;
@@ -52,6 +54,7 @@ pub fn lcd_init(bg565: u16) -> anyhow::Result<SpiLcd> {
         host: bsp::spi_host_device_t_SPI2_HOST,
         sclk: 12,
         mosi: 13,
+        miso: -1,
         cs: 10,
         dc: 11,
         pclk_hz: 40_000_000,
@@ -74,7 +77,7 @@ pub fn lcd_init(bg565: u16) -> anyhow::Result<SpiLcd> {
         esp!(bsp::esp_lcd_panel_mirror(panel, false, true))?;
         esp!(bsp::esp_lcd_panel_set_gap(panel, 0, 35))?;
         let lcd = SpiLcd::finish(panel, io, done, LCD_WIDTH, LCD_HEIGHT, bg565)?;
-        spi_lcd::backlight_init(BACKLIGHT)?;
+        spi_lcd::backlight_init(BACKLIGHT, false)?;
         Ok(lcd)
     }
 }

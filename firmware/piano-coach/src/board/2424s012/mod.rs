@@ -33,6 +33,8 @@ pub const CAPS: Caps = Caps {
 
 pub const LCD_WIDTH: usize = 240;
 pub const LCD_HEIGHT: usize = 240;
+/// Logical UI pixels per panel pixel: 1 = the layout's native size.
+pub const UI_SCALE: f32 = 1.0;
 pub const ROUND: bool = true;
 
 const BOOT_KEY: i32 = 9;
@@ -58,6 +60,7 @@ pub fn lcd_init(bg565: u16) -> anyhow::Result<SpiLcd> {
         host: bsp::spi_host_device_t_SPI2_HOST,
         sclk: 6,
         mosi: 7,
+        miso: -1,
         cs: 10,
         dc: 2,
         // GPIO6/7/10 are the C3's FSPI IOMUX pins: 80 MHz works.
@@ -78,7 +81,7 @@ pub fn lcd_init(bg565: u16) -> anyhow::Result<SpiLcd> {
         esp!(bsp::esp_lcd_panel_mirror(panel, false, false))?;
         SpiLcd::finish(panel, io, done, LCD_WIDTH, LCD_HEIGHT, bg565)?
     };
-    spi_lcd::backlight_init(BACKLIGHT)?;
+    spi_lcd::backlight_init(BACKLIGHT, false)?;
     match Cst816::open(&cst816::Pins { sda: TP_SDA, scl: TP_SCL, rst: TP_RST }) {
         Ok(t) => *TOUCH.lock().unwrap() = Some(t),
         Err(e) => warn!("touch: CST816D not found ({e}) — BOOT key only"),

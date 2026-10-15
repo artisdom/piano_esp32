@@ -38,6 +38,10 @@ mod imp;
 #[path = "tdisplays3/mod.rs"]
 mod imp;
 
+#[cfg(feature = "board-wroverkit")]
+#[path = "wroverkit/mod.rs"]
+mod imp;
+
 mod contract;
 #[cfg(ui_mini)]
 pub mod cst816;
@@ -59,7 +63,7 @@ pub use imp::{
 };
 
 #[cfg(ui_mini)]
-pub use imp::{lcd_draw, lcd_init, touch_point, LCD_HEIGHT, LCD_WIDTH, ROUND};
+pub use imp::{lcd_draw, lcd_init, touch_point, LCD_HEIGHT, LCD_WIDTH, ROUND, UI_SCALE as MINI_SCALE};
 
 /// What a board has; the UI adapts to these instead of naming boards.
 /// Declarative: each UI class reads only the fields it has a use for.
@@ -85,7 +89,8 @@ pub struct Caps {
     pub wake_hint: &'static str,
 }
 
-/// Board buttons, as far as a board has them.
+/// Board buttons, as far as a board has them (each board reports a subset).
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Button {
     PlayPause,

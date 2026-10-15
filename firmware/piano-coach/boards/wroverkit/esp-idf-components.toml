@@ -1,0 +1,6 @@
+# ESP-WROVER-KIT: no BSP — the SPI LCD is driven through esp_lcd's ST7789
+# driver (the ILI9341 takes the same DCS commands, see src/board/wroverkit).
+# The bindings header still has to be generated for the NimBLE/LCD APIs.
+[[extra_components]]
+bindings_header = "../../src/bindings.h"
+bindings_module = "bsp"

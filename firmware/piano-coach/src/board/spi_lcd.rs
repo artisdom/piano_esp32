@@ -25,6 +25,8 @@ pub struct Pins {
     pub host: bsp::spi_host_device_t,
     pub sclk: i32,
     pub mosi: i32,
+    /// Panel data out (to read its ID), or -1.
+    pub miso: i32,
     pub cs: i32,
     pub dc: i32,
     pub pclk_hz: u32,
@@ -46,11 +48,12 @@ unsafe extern "C" fn on_trans_done(
 
 /// SPI bus + panel IO (mode 0, 8-bit commands/params). The board then
 /// creates its panel driver on `io` and calls [`SpiLcd::finish`].
+#[allow(dead_code)] // only boards with an SPI panel call it
 pub fn open_io(p: &Pins) -> anyhow::Result<(bsp::esp_lcd_panel_io_handle_t, bsp::QueueHandle_t)> {
     unsafe {
         let mut bus: bsp::spi_bus_config_t = core::mem::zeroed();
         bus.__bindgen_anon_1.mosi_io_num = p.mosi;
-        bus.__bindgen_anon_2.miso_io_num = -1;
+        bus.__bindgen_anon_2.miso_io_num = p.miso;
         bus.sclk_io_num = p.sclk;
         bus.__bindgen_anon_3.quadwp_io_num = -1;
         bus.__bindgen_anon_4.quadhd_io_num = -1;
@@ -94,6 +97,7 @@ pub struct I80Pins {
 }
 
 #[cfg(target_arch = "xtensa")]
+#[allow(dead_code)] // only boards with a parallel panel call it
 /// i80 bus + panel IO (8-bit commands/params, D/C high for data). The board
 /// then creates its panel driver on `io` and calls [`SpiLcd::finish`].
 pub fn open_io_i80(p: &I80Pins) -> anyhow::Result<(bsp::esp_lcd_panel_io_handle_t, bsp::QueueHandle_t)> {
@@ -192,7 +196,8 @@ pub fn alloc_band(pixels: usize) -> &'static mut [u16] {
 const BL_TIMER: bsp::ledc_timer_t = bsp::ledc_timer_t_LEDC_TIMER_0;
 const BL_CHANNEL: bsp::ledc_channel_t = bsp::ledc_channel_t_LEDC_CHANNEL_0;
 
-pub fn backlight_init(gpio: i32) -> anyhow::Result<()> {
+/// `active_low`: the backlight is on while the pin is low (a PNP switch).
+pub fn backlight_init(gpio: i32, active_low: bool) -> anyhow::Result<()> {
     unsafe {
         let mut t: bsp::ledc_timer_config_t = core::mem::zeroed();
         t.speed_mode = bsp::ledc_mode_t_LEDC_LOW_SPEED_MODE;
@@ -207,6 +212,7 @@ pub fn backlight_init(gpio: i32) -> anyhow::Result<()> {
         c.channel = BL_CHANNEL;
         c.timer_sel = BL_TIMER;
         c.duty = 0;
+        c.flags.set_output_invert(active_low as u32);
         esp!(bsp::ledc_channel_config(&c))?;
     }
     Ok(())

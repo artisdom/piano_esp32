@@ -1,0 +1,6 @@
+# ESP-WROVER-KIT — 4 MB flash: app + a 1.4 MB song pack (tools/songs.sh).
+# Name,   Type, SubType, Offset,   Size
+nvs,      data, nvs,     0x9000,   24K
+phy_init, data, phy,     0xf000,   4K
+factory,  app,  factory, 0x10000,  0x280000
+songs,    data, undefined,   0x290000, 0x170000

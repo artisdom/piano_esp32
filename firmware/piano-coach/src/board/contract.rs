@@ -74,6 +74,9 @@ mod mini {
     const _: usize = imp::LCD_HEIGHT;
     /// Round panel: the UI keeps content inside the inscribed circle.
     const _: bool = imp::ROUND;
+    /// UI scale (physical / logical pixels): > 1 enlarges the layout on
+    /// panels taller than the 170-pixel bar it is designed for.
+    const _: f32 = imp::UI_SCALE;
     /// Panel up, cleared to the RGB565 background, backlight on.
     const _: fn(u16) -> anyhow::Result<SpiLcd> = imp::lcd_init;
     /// Write a w×h block of native-endian RGB565 at (x, y); may swap the

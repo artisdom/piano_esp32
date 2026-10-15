@@ -14,6 +14,7 @@ boards have a minimal UI, keep their songs in flash and use Bluetooth
 | ESP32-S31-Korvo-1 V1.1 | ESP32-S31 (dual RISC-V 320 MHz, native Wi-Fi 6 / BLE 5.4) | 4.3″ 800×480 (SUB3), UI at 0.625 scale | no backlight control; shut down = deep sleep (RESET restarts); PLAY / SET / VOL± buttons |
 | ESP32-1732S019 | ESP32-S3 (Xtensa, 16 MB flash, 8 MB PSRAM) | 1.9″ 170×320 ST7789, used as 320×170, no touch | minimal UI; BLE only; all 2449 songs in flash; BOOT key |
 | ESP32-2424S012C | ESP32-C3 (RISC-V 160 MHz, 400 KB RAM, 4 MB flash) | 1.28″ round 240×240 GC9A01 + CST816D touch | minimal UI; BLE only; 776 songs (≤ 1200 notes) in flash; BOOT key |
+| ESP-WROVER-KIT v4.1 | ESP32 rev 1 (dual Xtensa 240 MHz, 4 MB flash; PSRAM unused) | 3.2″ 320×240 ILI9341 / ST7789V (auto-detected), UI at 1.25× | minimal UI; BLE only; 776 songs (≤ 1200 notes) in flash; BOOT key; **remove any microSD card** |
 | LILYGO T-Display-S3 | ESP32-S3R8 (16 MB flash, 8 MB PSRAM) | 1.9″ 170×320 ST7789 on an 8-bit parallel bus, used as 320×170; touch on the Touch variant | minimal UI; BLE only; all 2449 songs in flash; BOOT + KEY keys |
 
 Board support is a layer of its own (`firmware/piano-coach/src/board/`,
@@ -127,8 +128,8 @@ piano's last panel change (volume/tone from its vendor SysEx), and SD
 ## Small boards (minimal UI)
 
 The ESP32-1732S019 (1.9″ bar), the LILYGO T-Display-S3 (1.9″ bar,
-two keys) and the ESP32-2424S012C (1.28″ round, watch-like) have no
-microSD slot, USB host or speaker. Piano Coach keeps
+two keys), the ESP-WROVER-KIT (3.2″) and the ESP32-2424S012C (1.28″
+round, watch-like) have no usable microSD slot, USB host or speaker. Piano Coach keeps
 a **song pack** in their flash, reaches the piano over **Bluetooth**
 only (it connects to `GZUT-MIDI` by itself; the dot top-left/top-centre
 turns green) and has a minimal UI with the essentials:
@@ -211,7 +212,14 @@ tools/songs.sh 2424s012 build && tools/songs.sh 2424s012 flash --port /dev/ttyAC
 tools/board.sh 2424s012 run --release -- --port /dev/ttyACM0
 tools/songs.sh tdisplays3 build && tools/songs.sh tdisplays3 flash --port /dev/ttyACM0
 tools/board.sh tdisplays3 run --release -- --port /dev/ttyACM0
+tools/songs.sh wroverkit build && tools/songs.sh wroverkit flash --port /dev/ttyUSB1 --baud 921600
+tools/board.sh wroverkit run --release -- --port /dev/ttyUSB1
 ```
+
+The ESP-WROVER-KIT's FT2232 gives two ports: `/dev/ttyUSB0` is JTAG,
+`/dev/ttyUSB1` the console and flashing port. Its microSD card-detect
+switch shares GPIO21 with the LCD's D/C line: with a card in the slot the
+LCD stays white (the firmware logs a warning) — take the card out.
 
 A T-Display-S3 running firmware that takes over its USB port (e.g. a
 "BLE USB Dongle" image: the PC sees a Bluetooth adapter, no serial port)
@@ -454,6 +462,13 @@ master v6.1-dev (4d59230ddff).
 | Piano keys A0/B0/C1/D1 as menu keys | ✔ | not separately tried (same code) |
 | Heap | 8.3 MB free (PSRAM) | 155 KB idle; 88 KB with a 761-note song, 40 KB low-water |
 | App image | 2.9 MB of 4 MB | 2.3 MB of 2.5 MB (Slint built for size) |
+
+ESP-WROVER-KIT v4.1 (ESP32 rev 1.0, 4 MB flash, ILI9341 detected by its
+zero ID): display, 776 songs, BLE, BOOT navigation and Learn ✔; app
+2.27 MB of 2.5 MB, 145 KB heap free (PSRAM stays off: ESP32 rev 1 needs
+a cache workaround Rust code is not built with). Found on the way: a
+4 KB main-task stack overflowed on this Xtensa chip (now 8 KB; it is
+freed after start-up), and a microSD card blanks the LCD (see above).
 
 LILYGO T-Display-S3 (ESP32-S3R8 rev 0.2, no touch): display (8-bit
 parallel ST7789, vendor init sequence) right way up and in colour, 2449

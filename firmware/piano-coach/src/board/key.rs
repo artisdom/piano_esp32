@@ -84,7 +84,8 @@ impl Key {
     }
 }
 
-/// Poll a board's key kept in a static.
+/// Poll a board's key kept in a static (single-key boards).
+#[allow(dead_code)]
 pub fn poll(key: &Mutex<Key>) -> Vec<Button> {
     key.lock().unwrap().poll().into_iter().collect()
 }

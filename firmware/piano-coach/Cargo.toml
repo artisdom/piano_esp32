@@ -66,6 +66,7 @@ board-korvo = []
 board-1732s019 = []
 board-2424s012 = []
 board-tdisplays3 = []
+board-wroverkit = []
 
 # Each board's native components (BSP etc.) are listed in
 # boards/<board>/esp-idf-components.toml, selected through

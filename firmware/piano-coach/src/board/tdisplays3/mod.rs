@@ -38,6 +38,8 @@ pub const CAPS: Caps = Caps {
 
 pub const LCD_WIDTH: usize = 320;
 pub const LCD_HEIGHT: usize = 170;
+/// Logical UI pixels per panel pixel: 1 = the layout's native size.
+pub const UI_SCALE: f32 = 1.0;
 pub const ROUND: bool = false;
 
 const BOOT_KEY: i32 = 0;
@@ -116,7 +118,7 @@ pub fn lcd_init(bg565: u16) -> anyhow::Result<SpiLcd> {
         }
         SpiLcd::finish(panel, io, done, LCD_WIDTH, LCD_HEIGHT, bg565)?
     };
-    spi_lcd::backlight_init(BACKLIGHT)?;
+    spi_lcd::backlight_init(BACKLIGHT, false)?;
     match Cst816::open(&cst816::Pins { sda: 18, scl: 17, rst: 21 }) {
         Ok(t) => *TOUCH.lock().unwrap() = Some(t),
         Err(_) => info!("touch: none (T-Display-S3 without touch) — keys only"),
