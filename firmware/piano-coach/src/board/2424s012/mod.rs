@@ -13,6 +13,7 @@ use std::sync::Mutex;
 use esp_idf_svc::sys::{bsp, esp};
 use log::{info, warn};
 
+use super::cst816::{self, Cst816};
 use super::key::{self, Key};
 use super::spi_lcd::{self, Pins, SpiLcd};
 use super::{Button, Caps};
@@ -25,6 +26,8 @@ pub const CAPS: Caps = Caps {
     usb_midi: false,
     ble_midi: true,
     buttons: true,
+    wake_hint: "a touch or RESET",
+    key_hint: "",
     touch: true,
 };
 
@@ -38,14 +41,11 @@ const TP_SDA: i32 = 4;
 const TP_SCL: i32 = 5;
 const TP_RST: i32 = 1;
 const TP_INT: i32 = 0;
-const TP_ADDR: u16 = 0x15;
 
 static KEY: Mutex<Key> = Mutex::new(Key::new(BOOT_KEY));
 
-/// The CST816D on its I2C bus (None until `lcd_init`, or if it is absent).
-struct Touch(bsp::i2c_master_dev_handle_t);
-unsafe impl Send for Touch {}
-static TOUCH: Mutex<Option<Touch>> = Mutex::new(None);
+/// The CST816D (None until `lcd_init`, or if it is absent).
+static TOUCH: Mutex<Option<Cst816>> = Mutex::new(None);
 
 pub fn early_init() {
     info!("board: {}", CAPS.name);
@@ -79,64 +79,20 @@ pub fn lcd_init(bg565: u16) -> anyhow::Result<SpiLcd> {
         SpiLcd::finish(panel, io, done, LCD_WIDTH, LCD_HEIGHT, bg565)?
     };
     spi_lcd::backlight_init(BACKLIGHT)?;
-    match touch_init() {
+    match Cst816::open(&cst816::Pins { sda: TP_SDA, scl: TP_SCL, rst: TP_RST }) {
         Ok(t) => *TOUCH.lock().unwrap() = Some(t),
         Err(e) => warn!("touch: CST816D not found ({e}) — BOOT key only"),
     }
     Ok(lcd)
 }
 
-fn touch_init() -> anyhow::Result<Touch> {
-    unsafe {
-        // Reset pulse, then give the controller time to boot.
-        for (pin, level, ms) in [(TP_RST, 0, 10), (TP_RST, 1, 60)] {
-            if level == 0 {
-                let mut c: bsp::gpio_config_t = core::mem::zeroed();
-                c.pin_bit_mask = 1u64 << pin;
-                c.mode = bsp::gpio_mode_t_GPIO_MODE_OUTPUT;
-                bsp::gpio_config(&c);
-            }
-            bsp::gpio_set_level(pin, level);
-            bsp::vTaskDelay(ms);
-        }
-        let mut bc: bsp::i2c_master_bus_config_t = core::mem::zeroed();
-        bc.i2c_port = 0;
-        bc.sda_io_num = TP_SDA;
-        bc.scl_io_num = TP_SCL;
-        bc.__bindgen_anon_1.clk_source = bsp::soc_periph_i2c_clk_src_t_I2C_CLK_SRC_DEFAULT;
-        bc.glitch_ignore_cnt = 7;
-        bc.flags.set_enable_internal_pullup(1);
-        let mut bus = core::ptr::null_mut();
-        esp!(bsp::i2c_new_master_bus(&bc, &mut bus))?;
-        let mut dc: bsp::i2c_device_config_t = core::mem::zeroed();
-        dc.dev_addr_length = bsp::i2c_addr_bit_len_t_I2C_ADDR_BIT_LEN_7;
-        dc.device_address = TP_ADDR;
-        dc.scl_speed_hz = 400_000;
-        let mut dev = core::ptr::null_mut();
-        esp!(bsp::i2c_master_bus_add_device(bus, &dc, &mut dev))?;
-        // Keep it awake (it stops answering in its auto low-power mode).
-        esp!(bsp::i2c_master_transmit(dev, [0xFEu8, 0xFF].as_ptr(), 2, 50))?;
-        info!("touch: CST816D at 0x{TP_ADDR:02x}");
-        Ok(Touch(dev))
-    }
-}
-
 pub fn lcd_draw(lcd: &SpiLcd, x: usize, y: usize, w: usize, h: usize, px: &mut [u16]) {
     lcd.draw(x, y, w, h, px);
 }
 
-/// Finger position in panel pixels. Registers 0x02.. = finger count, X
-/// high/low, Y high/low.
+/// Finger position in panel pixels (the CST816D's axes match the panel).
 pub fn touch_point() -> Option<(u16, u16)> {
-    let guard = TOUCH.lock().unwrap();
-    let t = guard.as_ref()?;
-    let mut b = [0u8; 5];
-    let r = unsafe { bsp::i2c_master_transmit_receive(t.0, [0x02u8].as_ptr(), 1, b.as_mut_ptr(), b.len(), 20) };
-    if r != 0 || b[0] & 0x0f == 0 {
-        return None;
-    }
-    let x = ((b[1] as u16 & 0x0f) << 8) | b[2] as u16;
-    let y = ((b[3] as u16 & 0x0f) << 8) | b[4] as u16;
+    let (x, y) = TOUCH.lock().unwrap().as_ref()?.read()?;
     (x < LCD_WIDTH as u16 && y < LCD_HEIGHT as u16).then_some((x, y))
 }
 

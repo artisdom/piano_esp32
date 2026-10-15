@@ -954,7 +954,8 @@ pub fn run(ctx: Ctx) -> anyhow::Result<()> {
                     show_toast(&format!("Speaker volume {v}%"));
                 }
                 // The single-key gestures belong to the small boards.
-                board::Button::KeyTap | board::Button::KeyDoubleTap | board::Button::KeyHold => {}
+                // The small boards' keys.
+                _ => {}
             }
         }
 

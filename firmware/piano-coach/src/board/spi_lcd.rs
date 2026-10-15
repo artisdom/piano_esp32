@@ -1,5 +1,6 @@
-//! Small SPI LCD panels (UI=mini boards): bus + panel IO setup, band writes
-//! with completion wait, and a PWM backlight. The panel-specific part (which
+//! Small LCD panels (UI=mini boards) on SPI or an 8-bit Intel-8080
+//! parallel bus: bus + panel IO setup, band writes with completion wait,
+//! and a PWM backlight. The panel-specific part (which
 //! esp_lcd driver, orientation, colour order) stays in the board module.
 //!
 //! Slint renders a band of lines into a DMA-capable buffer; [`SpiLcd::draw`]
@@ -79,6 +80,54 @@ pub fn open_io(p: &Pins) -> anyhow::Result<(bsp::esp_lcd_panel_io_handle_t, bsp:
     }
 }
 
+/// 8-bit Intel 8080 (parallel) bus pins and clock. The i80 LCD peripheral
+/// exists on the Xtensa chips (ESP32, -S2, -S3), not on the ESP32-C3.
+#[cfg(target_arch = "xtensa")]
+pub struct I80Pins {
+    pub dc: i32,
+    pub wr: i32,
+    pub cs: i32,
+    pub data: [i32; 8],
+    pub pclk_hz: u32,
+    /// Largest single transfer (bytes): one band.
+    pub max_transfer: usize,
+}
+
+#[cfg(target_arch = "xtensa")]
+/// i80 bus + panel IO (8-bit commands/params, D/C high for data). The board
+/// then creates its panel driver on `io` and calls [`SpiLcd::finish`].
+pub fn open_io_i80(p: &I80Pins) -> anyhow::Result<(bsp::esp_lcd_panel_io_handle_t, bsp::QueueHandle_t)> {
+    unsafe {
+        let mut bus_cfg: bsp::esp_lcd_i80_bus_config_t = core::mem::zeroed();
+        bus_cfg.dc_gpio_num = p.dc;
+        bus_cfg.wr_gpio_num = p.wr;
+        bus_cfg.clk_src = bsp::soc_periph_lcd_clk_src_t_LCD_CLK_SRC_DEFAULT;
+        for (i, &g) in p.data.iter().enumerate() {
+            bus_cfg.data_gpio_nums[i] = g;
+        }
+        bus_cfg.bus_width = 8;
+        bus_cfg.max_transfer_bytes = p.max_transfer;
+        let mut bus = core::ptr::null_mut();
+        esp!(bsp::esp_lcd_new_i80_bus(&bus_cfg, &mut bus))?;
+
+        let done = bsp::xQueueGenericCreate(1, 0, QUEUE_TYPE_BINARY_SEMAPHORE);
+        anyhow::ensure!(!done.is_null(), "no memory for the LCD semaphore");
+
+        let mut cfg: bsp::esp_lcd_panel_io_i80_config_t = core::mem::zeroed();
+        cfg.cs_gpio_num = p.cs;
+        cfg.pclk_hz = p.pclk_hz;
+        cfg.trans_queue_depth = 4;
+        cfg.on_color_trans_done = Some(on_trans_done);
+        cfg.user_ctx = done as *mut c_void;
+        cfg.lcd_cmd_bits = 8;
+        cfg.lcd_param_bits = 8;
+        cfg.dc_levels.set_dc_data_level(1);
+        let mut io = core::ptr::null_mut();
+        esp!(bsp::esp_lcd_new_panel_io_i80(bus, &cfg, &mut io))?;
+        Ok((io, done))
+    }
+}
+
 impl SpiLcd {
     /// Wrap the board's initialised panel, clear it to `bg565` and turn the
     /// display on.
@@ -100,7 +149,7 @@ impl SpiLcd {
             lcd.draw(0, y, width, h, &mut band[..width * h]);
         }
         unsafe { esp!(bsp::esp_lcd_panel_disp_on_off(panel, true))? };
-        info!("display up: {width}x{height} SPI panel");
+        info!("display up: {width}x{height} LCD panel");
         Ok(lcd)
     }
 

@@ -31,6 +31,8 @@ pub const CAPS: Caps = Caps {
     usb_midi: true,
     ble_midi: true,
     buttons: true,
+    wake_hint: "RESET",
+    key_hint: "",
     touch: true,
 };
 

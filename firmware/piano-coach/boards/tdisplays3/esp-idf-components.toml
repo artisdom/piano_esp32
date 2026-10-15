@@ -1,0 +1,5 @@
+# LILYGO T-Display-S3: no BSP — ST7789, i80 bus and I2C are in ESP-IDF.
+# The bindings header still has to be generated for the NimBLE/LCD APIs.
+[[extra_components]]
+bindings_header = "../../src/bindings.h"
+bindings_module = "bsp"

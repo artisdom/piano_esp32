@@ -14,6 +14,7 @@ boards have a minimal UI, keep their songs in flash and use Bluetooth
 | ESP32-S31-Korvo-1 V1.1 | ESP32-S31 (dual RISC-V 320 MHz, native Wi-Fi 6 / BLE 5.4) | 4.3″ 800×480 (SUB3), UI at 0.625 scale | no backlight control; shut down = deep sleep (RESET restarts); PLAY / SET / VOL± buttons |
 | ESP32-1732S019 | ESP32-S3 (Xtensa, 16 MB flash, 8 MB PSRAM) | 1.9″ 170×320 ST7789, used as 320×170, no touch | minimal UI; BLE only; all 2449 songs in flash; BOOT key |
 | ESP32-2424S012C | ESP32-C3 (RISC-V 160 MHz, 400 KB RAM, 4 MB flash) | 1.28″ round 240×240 GC9A01 + CST816D touch | minimal UI; BLE only; 776 songs (≤ 1200 notes) in flash; BOOT key |
+| LILYGO T-Display-S3 | ESP32-S3R8 (16 MB flash, 8 MB PSRAM) | 1.9″ 170×320 ST7789 on an 8-bit parallel bus, used as 320×170; touch on the Touch variant | minimal UI; BLE only; all 2449 songs in flash; BOOT + KEY keys |
 
 Board support is a layer of its own (`firmware/piano-coach/src/board/`,
 `boards/`); see [boards/README.md](../firmware/piano-coach/boards/README.md)
@@ -125,8 +126,9 @@ piano's last panel change (volume/tone from its vendor SysEx), and SD
 
 ## Small boards (minimal UI)
 
-The ESP32-1732S019 (1.9″ bar) and ESP32-2424S012C (1.28″ round,
-watch-like) have no microSD slot, USB host or speaker. Piano Coach keeps
+The ESP32-1732S019 (1.9″ bar), the LILYGO T-Display-S3 (1.9″ bar,
+two keys) and the ESP32-2424S012C (1.28″ round, watch-like) have no
+microSD slot, USB host or speaker. Piano Coach keeps
 a **song pack** in their flash, reaches the piano over **Bluetooth**
 only (it connects to `GZUT-MIDI` by itself; the dot top-left/top-centre
 turns green) and has a minimal UI with the essentials:
@@ -154,7 +156,8 @@ Controls:
 | BOOT tap | next row | pause / resume (restart when finished) |
 | BOOT double tap | previous row | restart |
 | BOOT hold (0.6 s) | open / OK | back to the song menu |
-| Touch (round board) | tap a row; swipe up/down to scroll; swipe right = back | tap = pause / resume; swipe right = back |
+| T-Display-S3 KEY / BOOT | KEY: next row (double: 5 rows), hold OK; BOOT: previous row (double: 5 rows), hold back | KEY: pause / resume; hold BOOT: back |
+| Touch (round board, T-Display-S3 Touch) | tap a row; swipe up/down to scroll; swipe right = back | tap = pause / resume; swipe right = back |
 | Piano keys (while nothing plays) | **A0** previous, **B0** next, **C1** OK, **D1** back | when paused/finished: C1 resume, D1 back, A0 restart |
 
 The four lowest white keys steer the menus only while no song is playing
@@ -206,7 +209,15 @@ tools/songs.sh 1732s019 build && tools/songs.sh 1732s019 flash --port /dev/ttyUS
 tools/board.sh 1732s019 run --release -- --port /dev/ttyUSB0
 tools/songs.sh 2424s012 build && tools/songs.sh 2424s012 flash --port /dev/ttyACM0
 tools/board.sh 2424s012 run --release -- --port /dev/ttyACM0
+tools/songs.sh tdisplays3 build && tools/songs.sh tdisplays3 flash --port /dev/ttyACM0
+tools/board.sh tdisplays3 run --release -- --port /dev/ttyACM0
 ```
+
+A T-Display-S3 running firmware that takes over its USB port (e.g. a
+"BLE USB Dongle" image: the PC sees a Bluetooth adapter, no serial port)
+must be put in download mode once: hold BOOT, press RST, release BOOT —
+`/dev/ttyACM*` appears. Piano Coach keeps the USB Serial/JTAG console, so
+later flashes need no buttons.
 
 `run` flashes the ELF **with the same build's bootloader and partition
 table** (`flash.sh`): espflash on the Tab5 (its bundled P4 bootloader does
@@ -443,6 +454,12 @@ master v6.1-dev (4d59230ddff).
 | Piano keys A0/B0/C1/D1 as menu keys | ✔ | not separately tried (same code) |
 | Heap | 8.3 MB free (PSRAM) | 155 KB idle; 88 KB with a 761-note song, 40 KB low-water |
 | App image | 2.9 MB of 4 MB | 2.3 MB of 2.5 MB (Slint built for size) |
+
+LILYGO T-Display-S3 (ESP32-S3R8 rev 0.2, no touch): display (8-bit
+parallel ST7789, vendor init sequence) right way up and in colour, 2449
+songs mounted, BLE connects, KEY / BOOT navigation and Learn ✔; app
+2.9 MB of 4 MB, 8.3 MB heap free. The touch variant's CST816 is probed
+at boot; its landscape mapping is untested.
 
 ## Known limits / ideas
 

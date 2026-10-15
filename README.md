@@ -12,7 +12,8 @@ Host/firmware work for the GZUT 88-key LED digital piano
   play & learn firmware (`firmware/piano-coach`, `firmware/piano-core`):
   Learn / Follow / Listen modes on the M5Stack Tab5 and ESP32-S31-Korvo-1
   (USB or Bluetooth, songs from microSD), and a minimal UI for the small
-  ESP32-1732S019 (1.9″) and round ESP32-2424S012 (1.28″) boards
+  ESP32-1732S019 (1.9″), LILYGO T-Display-S3 (1.9″) and round ESP32-2424S012
+  (1.28″) boards
   (Bluetooth, songs in flash).
 
 Quick start (USB, Linux):

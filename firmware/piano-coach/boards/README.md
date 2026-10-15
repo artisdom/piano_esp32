@@ -46,6 +46,7 @@ profile directory). A bare `cargo build` builds the Tab5 (defaults in
 | ESP32-S31-Korvo-1 V1.1 | `korvo` | ESP32-S31 | master (≥ 6.1) | 800×480 RGB (SUB3), scale 0.625 | USB-A host (HS); native BLE |
 | ESP32-1732S019 | `1732s019` | ESP32-S3 (Xtensa) | v5.5.3 | 1.9″ 320×170 ST7789 SPI, minimal UI, no touch | native BLE |
 | ESP32-2424S012C | `2424s012` | ESP32-C3 | v5.5.3 | 1.28″ round 240×240 GC9A01 SPI, minimal UI, CST816D touch | native BLE |
+| LILYGO T-Display-S3 | `tdisplays3` | ESP32-S3 (Xtensa) | v5.5.3 | 1.9″ 320×170 ST7789 on an 8-bit i80 bus, minimal UI, two keys, optional CST816 touch | native BLE |
 
 ## Porting a new board — checklist
 
@@ -62,12 +63,15 @@ profile directory). A bare `cargo build` builds the Tab5 (defaults in
    USB/BLE MIDI, buttons, touch), `early_init`, `init_power`,
    `set_backlight`, `power_off`, `reboot`, `bt_controller_start`,
    `poll_buttons` (a single key can use `board::key::Key` for
-   tap / double tap / hold).
+   tap / double tap / hold; boards with two keys report `Button::Nav*`).
+   `CAPS.key_hint` / `wake_hint` are shown in the mini UI.
 
    UI=mini (small SPI panel): `LCD_WIDTH` / `LCD_HEIGHT` (as the UI sees
    them), `ROUND`, `lcd_init` (bus + panel via `board::spi_lcd`, rotation,
-   colour order, backlight), `lcd_draw` (usually `SpiLcd::draw`),
-   `touch_point` (`None` without touch). Add a `songs` partition and a
+   colour order, backlight; `spi_lcd::open_io` for SPI panels,
+   `open_io_i80` for 8-bit parallel ones), `lcd_draw` (usually
+   `SpiLcd::draw`), `touch_point` (`None` without touch; `board::cst816`
+   reads CST816 controllers). Add a `songs` partition and a
    `SONGPACK_ARGS` budget that fits it, and check the UI in
    `tests/mini_preview` (add the size there if it is new).
 

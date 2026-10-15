@@ -316,11 +316,7 @@ impl App {
                     Item::new("home", board::CAPS.name, Act::Info)
                         .sub(format!("piano-coach {} · {songs} songs", env!("CARGO_PKG_VERSION"))),
                 );
-                v.push(Item::new("power", "Sleep", Act::Sleep).sub(if board::CAPS.touch {
-                    "touch or RESET wakes"
-                } else {
-                    "BOOT or RESET wakes"
-                }));
+                v.push(Item::new("power", "Sleep", Act::Sleep).sub(format!("{} wakes", board::CAPS.wake_hint)));
             }
         }
         self.items = v;
@@ -594,6 +590,15 @@ pub fn run(ctx: Ctx) -> anyhow::Result<()> {
                 (true, Button::KeyTap) => Nav::Ok,
                 (true, Button::KeyDoubleTap) => Nav::Prev(1),
                 (true, Button::KeyHold) => Nav::Back,
+                // Two-key boards map their keys to menu actions. On the
+                // play screen ▶ pauses / resumes too, ◀ does nothing (a
+                // restart by a stray press would lose the run).
+                (true, Button::NavNext) => Nav::Ok,
+                (true, Button::NavPrev) => continue,
+                (_, Button::NavPrev) => Nav::Prev(1),
+                (_, Button::NavNext) => Nav::Next(1),
+                (_, Button::NavOk) => Nav::Ok,
+                (_, Button::NavBack) => Nav::Back,
                 _ => continue,
             });
         }
@@ -676,10 +681,9 @@ pub fn run(ctx: Ctx) -> anyhow::Result<()> {
             vm.set_header(app.header().into());
             vm.set_footer(
                 if n > 1 {
-                    if board::CAPS.touch {
-                        format!("{} / {}", f + 1, n)
-                    } else {
-                        format!("{} / {}  ·  tap ›  2× ‹  hold OK", f + 1, n)
+                    match board::CAPS.key_hint {
+                        "" => format!("{} / {}", f + 1, n),
+                        hint => format!("{} / {}  ·  {hint}", f + 1, n),
                     }
                 } else {
                     String::new()

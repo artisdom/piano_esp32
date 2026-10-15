@@ -30,6 +30,8 @@ pub const CAPS: Caps = Caps {
     usb_midi: true,
     ble_midi: true,
     buttons: false,
+    wake_hint: "the side power button",
+    key_hint: "",
     touch: true,
 };
 

@@ -25,6 +25,8 @@ pub const CAPS: Caps = Caps {
     usb_midi: false,
     ble_midi: true,
     buttons: true,
+    wake_hint: "BOOT or RESET",
+    key_hint: "tap ›  2× ‹  hold OK",
     touch: false,
 };
 

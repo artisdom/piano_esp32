@@ -34,7 +34,13 @@ mod imp;
 #[path = "2424s012/mod.rs"]
 mod imp;
 
+#[cfg(feature = "board-tdisplays3")]
+#[path = "tdisplays3/mod.rs"]
+mod imp;
+
 mod contract;
+#[cfg(ui_mini)]
+pub mod cst816;
 #[cfg(ui_mini)]
 pub mod key;
 #[cfg(ui_mini)]
@@ -70,8 +76,13 @@ pub struct Caps {
     pub ble_midi: bool,
     /// Physical buttons reported by [`poll_buttons`].
     pub buttons: bool,
-    /// A touch panel (full boards always have one).
+    /// A touch panel (full boards always have one; small boards may only
+    /// find out at run time — `touch_point` then returns None).
     pub touch: bool,
+    /// How the small boards' keys work, for the menu footer.
+    pub key_hint: &'static str,
+    /// What wakes the board from its shut-down / sleep.
+    pub wake_hint: &'static str,
 }
 
 /// Board buttons, as far as a board has them.
@@ -86,6 +97,11 @@ pub enum Button {
     KeyTap,
     KeyDoubleTap,
     KeyHold,
+    /// Boards with two keys report menu actions directly.
+    NavPrev,
+    NavNext,
+    NavOk,
+    NavBack,
 }
 
 // ---- framebuffer boards ----------------------------------------------------
