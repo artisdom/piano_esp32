@@ -1,0 +1,17 @@
+# Host-only UI preview: renders every page of ui/app.slint with the same
+# software renderer and embedded fonts as the device, writes PNGs, and
+# checks that nothing is laid out past the 1280x720 screen.
+[package]
+name = "piano-tab5-ui-preview"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+slint = { version = "=1.18.1", default-features = false, features = ["std", "compat-1-2", "renderer-software"] }
+png = "0.17"
+
+[build-dependencies]
+slint-build = { version = "=1.18.1", features = ["sdf-fonts"] }

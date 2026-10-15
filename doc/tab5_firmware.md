@@ -100,6 +100,16 @@ cd firmware/piano-core
 cargo +stable test --release
 ```
 
+UI preview on the PC: renders every page (Library, Search, Play,
+Settings, shut-down dialog) with the device's own Slint code, renderer and
+embedded fonts and writes PNGs to `/tmp/piano-ui-preview` (or
+`$UI_PREVIEW_DIR`). Check layout changes here before flashing:
+
+```bash
+cd firmware/tab5/tests/ui_preview
+cargo +stable run --release --target x86_64-unknown-linux-gnu
+```
+
 Fonts: `tools/make_font.py` (needs `pip install fonttools`) regenerates
 `ui/fonts/NotoSansSC-Piano.otf` (Noto Sans CJK SC subset: ASCII,
 Latin-1, punctuation, the 3755 GB2312 level-1 hanzi and every character

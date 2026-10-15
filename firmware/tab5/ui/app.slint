@@ -66,6 +66,7 @@ export component AppWindow inherits Window {
                     y: (parent.height - self.height) / 2;
                     icon: "power";
                     width: 56px;
+                    height: 56px;
                     clicked => { AppVM.confirm-shutdown = true; }
                 }
             }
