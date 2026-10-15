@@ -245,6 +245,15 @@ impl Song {
         Ok(Song::from_smf(&smf::parse(bytes)?))
     }
 
+    /// Start of the latest note at or before `ms` (for a loop start that
+    /// lands on a chord rather than mid-phrase); 0 if none.
+    pub fn onset_at_or_before(&self, ms: u32) -> u32 {
+        match self.notes.partition_point(|n| n.start_ms <= ms) {
+            0 => 0,
+            i => self.notes[i - 1].start_ms,
+        }
+    }
+
     /// Group the selected hand's notes into chords to press together.
     pub fn steps(&self, hands: HandSel) -> Vec<Step> {
         let mut steps: Vec<Step> = Vec::new();

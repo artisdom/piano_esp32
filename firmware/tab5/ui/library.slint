@@ -3,6 +3,7 @@ import { Theme } from "theme.slint";
 import { Icon } from "icons.slint";
 import { Button, Card } from "widgets.slint";
 import { LibraryVM, LibEntry, SettingsVM } from "state.slint";
+import { SearchKeyboard } from "keyboard.slint";
 
 component Row inherits Rectangle {
     in property <LibEntry> entry;
@@ -64,7 +65,8 @@ export component LibraryPage inherits Rectangle {
             VerticalLayout {
                 padding: 12px;
                 spacing: 8px;
-                HorizontalLayout {
+                // Browse header: back, folder title + path, search button.
+                if !LibraryVM.searching: HorizontalLayout {
                     height: 60px;
                     spacing: 12px;
                     padding-left: 4px;
@@ -89,9 +91,51 @@ export component LibraryPage inherits Rectangle {
                             overflow: elide;
                         }
                     }
+                    Button {
+                        icon: "search";
+                        text: "Search";
+                        clicked => { LibraryVM.search-toggle(); }
+                    }
+                }
+                // Search header: the query box itself.
+                if LibraryVM.searching: HorizontalLayout {
+                    height: 60px;
+                    spacing: 12px;
+                    Rectangle {
+                        border-radius: 30px;
+                        background: Theme.surface2;
+                        border-width: 2px;
+                        border-color: Theme.accent;
+                        HorizontalLayout {
+                            padding-left: 18px;
+                            padding-right: 18px;
+                            spacing: 12px;
+                            Icon { y: (parent.height - self.height) / 2; name: "search"; size: 22px; tint: Theme.dim; }
+                            VerticalLayout {
+                                alignment: center;
+                                Text {
+                                    text: LibraryVM.query == "" ? "Type pinyin, initials or letters — e.g. xyz for 小燕子" : LibraryVM.query;
+                                    font-size: LibraryVM.query == "" ? Theme.fs-sm : Theme.fs-lg;
+                                    color: LibraryVM.query == "" ? Theme.faint : Theme.text;
+                                    overflow: elide;
+                                }
+                                Text {
+                                    text: LibraryVM.search-status;
+                                    font-size: Theme.fs-xs;
+                                    color: Theme.dim;
+                                    overflow: elide;
+                                }
+                            }
+                        }
+                    }
+                    Button {
+                        icon: "close";
+                        width: 60px;
+                        clicked => { LibraryVM.search-toggle(); }
+                    }
                 }
                 Rectangle { height: 1px; background: Theme.border; }
-                if LibraryVM.entries.length == 0: VerticalLayout {
+                if !LibraryVM.searching && LibraryVM.entries.length == 0: VerticalLayout {
                     alignment: center;
                     spacing: 20px;
                     padding: 40px;
@@ -111,12 +155,25 @@ export component LibraryPage inherits Rectangle {
                         }
                     }
                 }
-                if LibraryVM.entries.length > 0: ListView {
+                if !LibraryVM.searching && LibraryVM.entries.length > 0: ListView {
                     for e[i] in LibraryVM.entries: Row {
                         entry: e;
                         selected: i == LibraryVM.selected;
                         clicked => { LibraryVM.open(i); }
                     }
+                }
+                if LibraryVM.searching: ListView {
+                    vertical-stretch: 1;
+                    for e[i] in LibraryVM.results: Row {
+                        entry: e;
+                        selected: i == LibraryVM.result-selected;
+                        clicked => { LibraryVM.open-result(i); }
+                    }
+                }
+                if LibraryVM.searching: SearchKeyboard {
+                    key(k) => { LibraryVM.type-key(k); }
+                    backspace => { LibraryVM.backspace(); }
+                    clear => { LibraryVM.clear-query(); }
                 }
             }
         }

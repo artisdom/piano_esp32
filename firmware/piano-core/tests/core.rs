@@ -357,3 +357,78 @@ fn ble_midi_packets() {
     assert_eq!(p.flush().unwrap(), vec![0x80, 0x80, 0x90, 64, 1]);
     assert!(p.flush().is_none());
 }
+
+#[test]
+fn search_by_pinyin_initials_and_latin() {
+    use piano_core::search::{keys, Index, SongRef};
+    assert_eq!(keys("小燕子"), ("xiaoyanzi".to_string(), "xyz".to_string()));
+    assert_eq!(keys("Yesterday Once More").1, "yom");
+    let songs = ["小燕子 - 王路.mid", "燕子 - 民歌.mid", "Yesterday Once More - Carpenters.mid", "卖报歌 - 聂耳.mid"]
+        .iter()
+        .map(|n| SongRef::new(std::path::PathBuf::from(n), "f".into()))
+        .collect();
+    let idx = Index { songs };
+    let titles = |q: &str| idx.search(q, 10).iter().map(|s| s.title.clone()).collect::<Vec<_>>();
+    assert_eq!(titles("xyz"), ["小燕子"]);
+    assert_eq!(titles("yanzi"), ["燕子", "小燕子"]); // prefix match ranks first
+    assert_eq!(titles("Once more"), ["Yesterday Once More"]);
+    assert_eq!(titles("nie"), ["卖报歌"]); // by artist pinyin
+    assert!(titles("").is_empty());
+}
+
+#[test]
+fn library_search_index_finds_songs() {
+    let dir = std::env::var("PIANO_MIDI_DIR").unwrap_or_else(|_| {
+        concat!(env!("CARGO_MANIFEST_DIR"), "/../../../midi-piano/assets/midi").to_string()
+    });
+    if std::fs::metadata(&dir).is_err() {
+        return;
+    }
+    let idx = piano_core::search::Index::build(std::path::Path::new(&dir));
+    assert_eq!(idx.songs.len(), 2449);
+    // 卖报歌 (mai bao ge) by its initials.
+    assert!(idx.search("mbg", 20).iter().any(|s| s.title == "卖报歌"));
+}
+
+#[test]
+fn practice_loop_repeats_section() {
+    // RH: C5 at 0 ms, E5 at 500 ms; LH C3 0..1000.
+    let mut e = Engine::new(Arc::new(two_hand_song()), Options::default());
+    let mut out = Vec::new();
+    assert!(!e.set_loop(Some((0, 100)), &mut out), "too short");
+    assert!(e.set_loop(Some((0, 600)), &mut out));
+    e.play(0, &mut out);
+    run(&mut e, 0, 1300, &mut out);
+    assert_eq!(e.loops(), 2);
+    assert!(e.position_ms() < 600);
+    assert_ne!(e.state(), State::Finished);
+    e.set_loop(None, &mut out);
+    run(&mut e, 1300, 3000, &mut out);
+    assert_eq!(e.state(), State::Finished);
+}
+
+#[test]
+fn learn_loop_restarts_at_section_start() {
+    let opts = Options {
+        mode: Mode::Learn,
+        hands: HandSel::Right,
+        ..Options::default()
+    };
+    let mut e = Engine::new(Arc::new(two_hand_song()), opts);
+    let mut out = Vec::new();
+    // Section covers only the first chord (C5 at 0); E5 at 500 is past it.
+    e.set_loop(Some((0, 500)), &mut out);
+    e.play(0, &mut out);
+    e.key_down(72, &mut out);
+    assert!(!e.is_hint(76), "chord past the loop end is not lit");
+    out.clear();
+    run(&mut e, 0, 700, &mut out);
+    assert_eq!(e.loops(), 1);
+    // Back at the start: waiting for C5 again with its LED lit.
+    assert_eq!(e.waiting_keys(), vec![72]);
+    assert!(out.contains(&[0x90, 72, 1]));
+    assert!(!out.contains(&[0x90, 76, 1]), "chord past the loop end is never lit");
+    let s = e.song().clone();
+    assert_eq!(s.onset_at_or_before(499), 0);
+    assert_eq!(s.onset_at_or_before(500), 500);
+}

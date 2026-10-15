@@ -21,6 +21,8 @@ pub enum Cmd {
     Seek(f32),
     SetOptions(Options),
     Tempo(u16),
+    /// Practice section (song ms), or None to clear.
+    SetLoop(Option<(u32, u32)>),
     LedTest,
     AllOff,
 }
@@ -42,6 +44,8 @@ pub struct Snapshot {
     pub waiting: Vec<u8>,
     pub step: Option<Step>,
     pub wrong: Option<(u8, Instant)>,
+    pub loop_range: Option<(u32, u32)>,
+    pub loops: u32,
     /// Bumped on every change so the UI can skip identical frames.
     pub rev: u64,
 }
@@ -170,6 +174,13 @@ fn run(cmds: Receiver<Cmd>, keys: Receiver<KeyEvent>, out: Sender<Msg>, sh: Shar
                         e.set_tempo(opts.tempo_pct);
                     }
                 }
+                Cmd::SetLoop(r) => {
+                    if let Some(e) = engine.as_mut() {
+                        if !e.set_loop(r, &mut buf) {
+                            warn!("loop {r:?} rejected (shorter than {} ms)", piano_core::engine::MIN_LOOP_MS);
+                        }
+                    }
+                }
                 Cmd::LedTest => {
                     if let Some(e) = engine.as_mut() {
                         e.pause(&mut buf);
@@ -246,6 +257,8 @@ fn run(cmds: Receiver<Cmd>, keys: Receiver<KeyEvent>, out: Sender<Msg>, sh: Shar
                     s.stats = e.stats();
                     s.waiting = e.waiting_keys();
                     s.step = e.current_step().cloned();
+                    s.loop_range = e.loop_range();
+                    s.loops = e.loops();
                 }
                 None => {
                     s.state = State::Stopped;
@@ -253,6 +266,8 @@ fn run(cmds: Receiver<Cmd>, keys: Receiver<KeyEvent>, out: Sender<Msg>, sh: Shar
                     s.stats = Stats::default();
                     s.waiting.clear();
                     s.step = None;
+                    s.loop_range = None;
+                    s.loops = 0;
                 }
             }
         }

@@ -54,6 +54,17 @@ export global LibraryVM {
     callback up();
     callback crumb(int);
     callback start(int); // 0 listen, 1 learn, 2 follow
+    // Library-wide search (pinyin / initials / Latin letters).
+    in-out property <bool> searching;
+    in property <string> query;
+    in property <string> search-status;
+    in property <[LibEntry]> results;
+    in-out property <int> result-selected: -1;
+    callback search-toggle();
+    callback type-key(string);
+    callback backspace();
+    callback clear-query();
+    callback open-result(int);
 }
 
 export global PlayerVM {
@@ -75,6 +86,14 @@ export global PlayerVM {
     in property <[KeyView]> keys;
     in property <[RollNote]> roll;
     in property <length> now-line;   // y of the "now" line inside the roll
+    // Practice loop: positions as fractions of the song, -1 = unset.
+    in property <float> loop-a: -1;
+    in property <float> loop-b: -1;
+    in property <bool> looping;
+    in property <string> loop-text: "";
+    callback set-loop-a();
+    callback set-loop-b();
+    callback clear-loop();
     callback play-pause();
     callback stop();
     callback restart();

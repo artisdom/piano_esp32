@@ -163,7 +163,14 @@ pub struct Engine {
     /// UI flash for a wrong key: (key, song ms).
     pub last_wrong: Option<(u8, u32)>,
     stats: Stats,
+    /// Practice section: song ms [start, end); playback jumps back to
+    /// `start` on reaching `end`.
+    loop_range: Option<(u32, u32)>,
+    loops: u32,
 }
+
+/// Shortest loop accepted (song ms).
+pub const MIN_LOOP_MS: u32 = 500;
 
 impl Engine {
     pub fn new(song: Arc<Song>, opts: Options) -> Engine {
@@ -184,6 +191,8 @@ impl Engine {
             pressed: [false; 128],
             last_wrong: None,
             stats: Stats::default(),
+            loop_range: None,
+            loops: 0,
         };
         e.rebuild();
         e
@@ -315,6 +324,45 @@ impl Engine {
         };
     }
 
+    /// Set or clear the practice loop. A range shorter than [`MIN_LOOP_MS`]
+    /// is rejected (returns false). If playing outside the new range, jumps
+    /// to its start.
+    pub fn set_loop(&mut self, range: Option<(u32, u32)>, out: &mut Vec<Msg>) -> bool {
+        match range {
+            None => {
+                self.loop_range = None;
+                self.loops = 0;
+                true
+            }
+            Some((a, b)) => {
+                let b = b.min(self.song.duration_ms);
+                if b < a + MIN_LOOP_MS {
+                    return false;
+                }
+                self.loop_range = Some((a, b));
+                self.loops = 0;
+                let pos = self.pos as u32;
+                if pos < a || pos >= b {
+                    self.silence(out);
+                    self.seek_inner(a, out);
+                    if self.state == State::Waiting || self.state == State::Finished {
+                        self.state = State::Playing;
+                    }
+                }
+                true
+            }
+        }
+    }
+
+    pub fn loop_range(&self) -> Option<(u32, u32)> {
+        self.loop_range
+    }
+
+    /// Completed passes through the loop.
+    pub fn loops(&self) -> u32 {
+        self.loops
+    }
+
     /// Only tempo changed: no restart needed.
     pub fn set_tempo(&mut self, pct: u16) {
         self.opts.tempo_pct = pct.clamp(25, 200);
@@ -325,7 +373,8 @@ impl Engine {
             State::Stopped | State::Finished => {
                 self.silence(out);
                 self.rebuild();
-                self.seek_inner(0, out);
+                self.loops = 0;
+                self.seek_inner(self.loop_range.map(|r| r.0).unwrap_or(0), out);
             }
             _ => {}
         }
@@ -444,6 +493,10 @@ impl Engine {
     /// Learn mode: light the LEDs of the current step.
     fn light_step(&mut self, out: &mut Vec<Msg>) {
         if let Some(s) = self.steps.get(self.step) {
+            // Not past the practice loop: that chord is never played.
+            if self.loop_range.is_some_and(|(_, b)| s.ms >= b) {
+                return;
+            }
             let keys = s.keys.clone();
             for k in keys {
                 self.hint_on(k, out);
@@ -479,6 +532,18 @@ impl Engine {
         self.last_now = Some(now);
         if self.state == State::Playing {
             self.pos += dt as f64 * self.opts.tempo_pct as f64 / 100.0;
+        }
+        // Practice loop: back to the start once the end is reached. Checked
+        // before the Learn halt, so a chord at or past the end is never
+        // waited for.
+        if let Some((a, b)) = self.loop_range {
+            if self.pos >= b as f64 {
+                self.silence(out);
+                self.seek_inner(a, out);
+                self.loops += 1;
+                self.state = State::Playing;
+                return;
+            }
         }
         // Learn: halt at the next unplayed chord.
         if self.opts.mode == Mode::Learn {

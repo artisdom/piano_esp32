@@ -47,6 +47,19 @@ component Keyboard inherits Rectangle {
     }
 }
 
+component Stat inherits Rectangle {
+    in property <string> label;
+    in property <string> value;
+    in property <color> tone: Theme.text;
+    min-width: 92px;
+    VerticalLayout {
+        alignment: center;
+        spacing: 0px;
+        Text { text: root.value; font-size: Theme.fs-lg; font-weight: 700; color: root.tone; horizontal-alignment: center; }
+        Text { text: root.label; font-size: Theme.fs-xs; color: Theme.dim; horizontal-alignment: center; }
+    }
+}
+
 component Roll inherits Rectangle {
     width: Geometry.keys-width;
     height: Geometry.roll-height;
@@ -78,6 +91,23 @@ component Roll inherits Rectangle {
         height: 3px;
         background: Theme.led.with-alpha(0.7);
     }
+    // Score + loop counter, top-right.
+    if PlayerVM.loaded && (PlayerVM.mode != 0 || PlayerVM.loop-text != ""): Rectangle {
+        x: parent.width - self.width - 12px;
+        y: 12px;
+        width: stats.preferred-width + 24px;
+        height: 64px;
+        border-radius: 14px;
+        background: #000000a0;
+        stats := HorizontalLayout {
+            x: 12px;
+            spacing: 4px;
+            if PlayerVM.mode != 0: Stat { label: "accuracy"; value: PlayerVM.accuracy; tone: Theme.ok; }
+            if PlayerVM.mode != 0: Stat { label: PlayerVM.mode == 1 ? "chords" : "notes"; value: PlayerVM.steps; }
+            if PlayerVM.mode != 0: Stat { label: "streak"; value: PlayerVM.streak; tone: Theme.warn; }
+            if PlayerVM.loop-text != "": Stat { label: "loop"; value: PlayerVM.loop-text; tone: Theme.right-hand; }
+        }
+    }
     // Learn prompt.
     if PlayerVM.prompt != "": Rectangle {
         x: (parent.width - self.width) / 2;
@@ -101,19 +131,6 @@ component Roll inherits Rectangle {
         font-size: Theme.fs;
         horizontal-alignment: center;
         vertical-alignment: center;
-    }
-}
-
-component Stat inherits Rectangle {
-    in property <string> label;
-    in property <string> value;
-    in property <color> tone: Theme.text;
-    min-width: 92px;
-    VerticalLayout {
-        alignment: center;
-        spacing: 0px;
-        Text { text: root.value; font-size: Theme.fs-lg; font-weight: 700; color: root.tone; horizontal-alignment: center; }
-        Text { text: root.label; font-size: Theme.fs-xs; color: Theme.dim; horizontal-alignment: center; }
     }
 }
 
@@ -197,13 +214,61 @@ export component PlayerPage inherits Rectangle {
                     border-radius: 4px;
                     background: Theme.accent;
                 }
+                // Loop section and its A / B markers.
+                if PlayerVM.loop-a >= 0 && PlayerVM.loop-b > PlayerVM.loop-a: Rectangle {
+                    x: parent.width * PlayerVM.loop-a;
+                    width: parent.width * (PlayerVM.loop-b - PlayerVM.loop-a);
+                    y: (parent.height - self.height) / 2;
+                    height: 20px;
+                    border-radius: 6px;
+                    background: Theme.right-hand.with-alpha(0.28);
+                    border-width: 1px;
+                    border-color: Theme.right-hand;
+                }
+                if PlayerVM.loop-a >= 0: Rectangle {
+                    x: parent.width * PlayerVM.loop-a - 1px;
+                    width: 3px;
+                    y: (parent.height - self.height) / 2;
+                    height: 30px;
+                    background: Theme.right-hand;
+                }
+                if PlayerVM.loop-b >= 0: Rectangle {
+                    x: parent.width * PlayerVM.loop-b - 1px;
+                    width: 3px;
+                    y: (parent.height - self.height) / 2;
+                    height: 30px;
+                    background: Theme.right-hand;
+                }
                 TouchArea {
                     enabled: PlayerVM.loaded;
                     clicked => { PlayerVM.seek(max(0, min(1, self.mouse-x / self.width))); }
                 }
             }
             Text { text: PlayerVM.dur-text; font-size: Theme.fs-sm; color: Theme.dim; vertical-alignment: center; min-width: 48px; }
-            Rectangle { width: 8px; }
+            Rectangle { width: 4px; }
+            // Practice a section: A = loop start (snaps to the chord at or
+            // before now), B = loop end; the third button clears the loop.
+            Button {
+                text: "A";
+                width: 56px;
+                primary: PlayerVM.loop-a >= 0;
+                enabled: PlayerVM.loaded;
+                clicked => { PlayerVM.set-loop-a(); }
+            }
+            Button {
+                text: "B";
+                width: 56px;
+                primary: PlayerVM.loop-b >= 0;
+                enabled: PlayerVM.loaded;
+                clicked => { PlayerVM.set-loop-b(); }
+            }
+            Button {
+                icon: PlayerVM.looping || PlayerVM.loop-a >= 0 ? "close" : "loop";
+                width: 56px;
+                enabled: PlayerVM.loop-a >= 0 || PlayerVM.loop-b >= 0;
+                clicked => { PlayerVM.clear-loop(); }
+            }
+            Rectangle { width: 4px; }
             Button { icon: "minus"; width: 52px; clicked => { PlayerVM.tempo-step(-10); } }
             VerticalLayout {
                 alignment: center;
@@ -212,10 +277,6 @@ export component PlayerPage inherits Rectangle {
                 Text { text: "tempo"; font-size: Theme.fs-xs; color: Theme.dim; horizontal-alignment: center; }
             }
             Button { icon: "plus"; width: 52px; clicked => { PlayerVM.tempo-step(10); } }
-            Rectangle { width: 8px; }
-            if PlayerVM.mode != 0: Stat { label: "accuracy"; value: PlayerVM.accuracy; tone: Theme.ok; }
-            if PlayerVM.mode != 0: Stat { label: PlayerVM.mode == 1 ? "chords" : "notes"; value: PlayerVM.steps; }
-            if PlayerVM.mode != 0: Stat { label: "streak"; value: PlayerVM.streak; tone: Theme.warn; }
         }
         Roll { }
         Keyboard { }

@@ -1,0 +1,47 @@
+import { Theme } from "theme.slint";
+import { Icon } from "icons.slint";
+
+component Key inherits Rectangle {
+    in property <string> text;
+    in property <string> icon;
+    callback pressed;
+    width: 64px;
+    height: 44px;
+    border-radius: 10px;
+    background: ta.pressed ? Theme.accent : Theme.raised;
+    if root.icon == "": Text {
+        text: root.text;
+        font-size: Theme.fs-lg;
+        color: Theme.text;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    if root.icon != "": Icon {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        name: root.icon;
+        size: 22px;
+    }
+    ta := TouchArea { clicked => { root.pressed(); } }
+}
+
+// Latin on-screen keyboard for search. Chinese titles are found by pinyin
+// or pinyin initials, so letters and digits are all that is needed.
+export component SearchKeyboard inherits VerticalLayout {
+    callback key(string);
+    callback backspace();
+    callback clear();
+    spacing: 6px;
+    alignment: center;
+    for row in [["1","2","3","4","5","6","7","8","9","0"],
+                ["q","w","e","r","t","y","u","i","o","p"],
+                ["a","s","d","f","g","h","j","k","l"],
+                ["z","x","c","v","b","n","m"]]: HorizontalLayout {
+        spacing: 6px;
+        alignment: center;
+        for k in row: Key { text: k; pressed => { root.key(k); } }
+        // Erase / clear share the last row (spaces are ignored by search).
+        if row.length == 7: Key { icon: "erase"; width: 100px; pressed => { root.backspace(); } }
+        if row.length == 7: Key { icon: "close"; width: 64px; pressed => { root.clear(); } }
+    }
+}

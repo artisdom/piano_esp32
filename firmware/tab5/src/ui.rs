@@ -5,12 +5,14 @@ use std::cell::{Cell, RefCell};
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::mpsc::Sender;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use log::info;
 use piano_core::engine::{Mode, Options, State};
+use piano_core::engine::MIN_LOOP_MS;
 use piano_core::library::{self, Entry};
+use piano_core::search::{Index, SongRef};
 use piano_core::song::{is_black, key_name, Hand, Song, KEY_HI, KEY_LO};
 use slint::platform::software_renderer::{MinimalSoftwareWindow, RepaintBufferType, Rgb565Pixel};
 use slint::platform::{Platform, PointerEventButton, WindowEvent};
@@ -166,6 +168,79 @@ fn song_info(s: &Song) -> String {
         s.notes.len() - right,
         split
     )
+}
+
+/// The library-wide search index, built off the UI thread.
+#[derive(Default)]
+struct SearchState {
+    index: Option<Arc<Index>>,
+    building: bool,
+    /// Bumped when a build finishes.
+    rev: u32,
+}
+
+type SharedSearch = Arc<Mutex<SearchState>>;
+
+fn build_index(search: &SharedSearch, root: PathBuf) {
+    {
+        let mut st = search.lock().unwrap();
+        if st.building {
+            return;
+        }
+        st.building = true;
+    }
+    let s = search.clone();
+    let _ = std::thread::Builder::new()
+        .name("index".into())
+        .stack_size(16 * 1024)
+        .spawn(move || {
+            let t = Instant::now();
+            let idx = Index::build(&root);
+            info!("search: indexed {} songs under {} in {:?}", idx.songs.len(), root.display(), t.elapsed());
+            let mut st = s.lock().unwrap();
+            st.index = Some(Arc::new(idx));
+            st.building = false;
+            st.rev += 1;
+        });
+}
+
+/// Re-run the query and refresh the result list + status line.
+fn run_search(ui: &AppWindow, search: &SharedSearch, query: &str, results: &RefCell<Vec<SongRef>>) {
+    let vm = ui.global::<LibraryVM>();
+    vm.set_query(query.into());
+    vm.set_result_selected(-1);
+    let (index, building) = {
+        let st = search.lock().unwrap();
+        (st.index.clone(), st.building)
+    };
+    let hits: Vec<SongRef> = match &index {
+        Some(idx) => idx.search(query, 200).into_iter().cloned().collect(),
+        None => Vec::new(),
+    };
+    vm.set_search_status(
+        match (&index, building) {
+            (None, true) => "indexing the SD card…".to_string(),
+            (None, false) => "no songs indexed (insert a card and Rescan)".to_string(),
+            (Some(idx), _) if query.trim().is_empty() => format!("{} songs — start typing", idx.songs.len()),
+            (Some(_), _) if hits.len() >= 200 => "200+ matches — keep typing".to_string(),
+            (Some(_), _) => format!("{} matches", hits.len()),
+        }
+        .into(),
+    );
+    let rows: Vec<LibEntry> = hits
+        .iter()
+        .map(|h| LibEntry {
+            title: h.title.as_str().into(),
+            subtitle: if h.artist.is_empty() {
+                h.folder.as_str().into()
+            } else {
+                format!("{} · {}", h.artist, h.folder).into()
+            },
+            is_dir: false,
+        })
+        .collect();
+    vm.set_results(ModelRc::new(VecModel::from(rows)));
+    *results.borrow_mut() = hits;
 }
 
 pub struct Ctx {
@@ -328,6 +403,121 @@ pub fn run(ctx: Ctx) -> anyhow::Result<()> {
         });
     }
 
+    // ---- callbacks: search -----------------------------------------------
+    let search: SharedSearch = Arc::new(Mutex::new(SearchState::default()));
+    if sd_ok.get() {
+        build_index(&search, lib.borrow().root.clone());
+    }
+    let query: Rc<RefCell<String>> = Rc::new(RefCell::new(String::new()));
+    let results: Rc<RefCell<Vec<SongRef>>> = Rc::new(RefCell::new(Vec::new()));
+    {
+        let vm = ui.global::<LibraryVM>();
+        let (w, se, q, r, l) = (ui.as_weak(), search.clone(), query.clone(), results.clone(), lib.clone());
+        vm.on_search_toggle(move || {
+            let ui = w.unwrap();
+            let vm = ui.global::<LibraryVM>();
+            let on = !vm.get_searching();
+            vm.set_searching(on);
+            if on {
+                let need = {
+                    let st = se.lock().unwrap();
+                    st.index.is_none() && !st.building
+                };
+                if need {
+                    build_index(&se, l.borrow().root.clone());
+                }
+                run_search(&ui, &se, &q.borrow(), &r);
+            }
+        });
+        let (w, se, q, r) = (ui.as_weak(), search.clone(), query.clone(), results.clone());
+        vm.on_type_key(move |k| {
+            if q.borrow().chars().count() < 40 {
+                q.borrow_mut().push_str(&k);
+            }
+            run_search(&w.unwrap(), &se, &q.borrow(), &r);
+        });
+        let (w, se, q, r) = (ui.as_weak(), search.clone(), query.clone(), results.clone());
+        vm.on_backspace(move || {
+            q.borrow_mut().pop();
+            run_search(&w.unwrap(), &se, &q.borrow(), &r);
+        });
+        let (w, se, q, r) = (ui.as_weak(), search.clone(), query.clone(), results.clone());
+        vm.on_clear_query(move || {
+            q.borrow_mut().clear();
+            run_search(&w.unwrap(), &se, &q.borrow(), &r);
+        });
+        let (w, r, c) = (ui.as_weak(), results.clone(), ctx.cmds.clone());
+        vm.on_open_result(move |i| {
+            let ui = w.unwrap();
+            let Some(hit) = r.borrow().get(i as usize).cloned() else { return };
+            let vm = ui.global::<LibraryVM>();
+            vm.set_result_selected(i);
+            vm.set_selected(-1);
+            vm.set_sel_title(hit.title.as_str().into());
+            vm.set_sel_subtitle(hit.artist.as_str().into());
+            vm.set_sel_info("Loading…".into());
+            vm.set_sel_error("".into());
+            vm.set_sel_ready(false);
+            let _ = c.send(Cmd::Load(hit.path.clone()));
+        });
+    }
+
+    // ---- callbacks: practice loop ----------------------------------------
+    // Current position / song from the latest snapshot (set in the loop).
+    let cur_pos: Rc<Cell<u32>> = Rc::new(Cell::new(0));
+    let cur_song: Rc<RefCell<Option<Arc<Song>>>> = Rc::new(RefCell::new(None));
+    let loop_ab: Rc<Cell<(Option<u32>, Option<u32>)>> = Rc::new(Cell::new((None, None)));
+    let show_loop = |ui: &AppWindow, ab: (Option<u32>, Option<u32>), dur: u32| {
+        let p = ui.global::<PlayerVM>();
+        let f = |v: Option<u32>| v.map(|ms| ms as f32 / dur.max(1) as f32).unwrap_or(-1.0);
+        p.set_loop_a(f(ab.0));
+        p.set_loop_b(f(ab.1));
+    };
+    {
+        let vm = ui.global::<PlayerVM>();
+        let (w, pos, song, ab, c, st) =
+            (ui.as_weak(), cur_pos.clone(), cur_song.clone(), loop_ab.clone(), ctx.cmds.clone(), show_toast.clone());
+        vm.on_set_loop_a(move || {
+            let ui = w.unwrap();
+            let Some(sg) = song.borrow().clone() else { return };
+            let a = sg.onset_at_or_before(pos.get());
+            let (_, mut b) = ab.get();
+            if b.is_some_and(|b| b < a + MIN_LOOP_MS) {
+                b = None;
+            }
+            ab.set((Some(a), b));
+            if let Some(b) = b {
+                let _ = c.send(Cmd::SetLoop(Some((a, b))));
+                st("Loop section updated");
+            } else {
+                st("Loop start set — now tap B at the end of the section");
+            }
+            show_loop(&ui, ab.get(), sg.duration_ms);
+        });
+        let (w, pos, song, ab, c, st) =
+            (ui.as_weak(), cur_pos.clone(), cur_song.clone(), loop_ab.clone(), ctx.cmds.clone(), show_toast.clone());
+        vm.on_set_loop_b(move || {
+            let ui = w.unwrap();
+            let Some(sg) = song.borrow().clone() else { return };
+            let a = ab.get().0.unwrap_or(0);
+            let b = pos.get().min(sg.duration_ms);
+            if b < a + MIN_LOOP_MS {
+                st("B must be after A — play on a little, then tap B");
+                return;
+            }
+            ab.set((Some(a), Some(b)));
+            let _ = c.send(Cmd::SetLoop(Some((a, b))));
+            st(&format!("Looping {} – {}", library::fmt_time(a), library::fmt_time(b)));
+            show_loop(&ui, ab.get(), sg.duration_ms);
+        });
+        let (w, ab, c) = (ui.as_weak(), loop_ab.clone(), ctx.cmds.clone());
+        vm.on_clear_loop(move || {
+            ab.set((None, None));
+            let _ = c.send(Cmd::SetLoop(None));
+            show_loop(&w.unwrap(), (None, None), 1);
+        });
+    }
+
     // ---- callbacks: player -----------------------------------------------
     {
         let vm = ui.global::<PlayerVM>();
@@ -403,7 +593,7 @@ pub fn run(ctx: Ctx) -> anyhow::Result<()> {
         vm.on_all_off(move || {
             let _ = c.send(Cmd::AllOff);
         });
-        let (l, w, sd) = (lib.clone(), ui.as_weak(), sd_ok.clone());
+        let (l, w, sd, se) = (lib.clone(), ui.as_weak(), sd_ok.clone(), search.clone());
         let st = show_toast.clone();
         vm.on_rescan(move || {
             let ui = w.unwrap();
@@ -421,6 +611,10 @@ pub fn run(ctx: Ctx) -> anyhow::Result<()> {
             lb.stack.clear();
             let err = lb.reload().err();
             push_library(&ui, &lb, sd.get(), err);
+            if sd.get() {
+                se.lock().unwrap().index = None;
+                build_index(&se, lb.root.clone());
+            }
         });
         let current = ctx.transport;
         let st = show_toast.clone();
@@ -458,6 +652,7 @@ pub fn run(ctx: Ctx) -> anyhow::Result<()> {
     let mut key_states: Vec<i32> = vec![-1; geometry.len()];
 
     let mut last_rev = u64::MAX;
+    let mut last_search_rev = 0u32;
     let mut last_path: Option<PathBuf> = None;
     let mut last_state = State::Stopped;
     let mut last_connected: Option<bool> = None;
@@ -518,6 +713,15 @@ pub fn run(ctx: Ctx) -> anyhow::Result<()> {
             ui.global::<AppVM>().set_toast("".into());
         }
 
+        // ---- search index finished building ----
+        let srev = search.lock().unwrap().rev;
+        if srev != last_search_rev {
+            last_search_rev = srev;
+            if ui.global::<LibraryVM>().get_searching() {
+                run_search(&ui, &search, &query.borrow(), &results);
+            }
+        }
+
         // ---- player snapshot ----
         let snap = {
             let s = ctx.shared.lock().unwrap();
@@ -530,8 +734,13 @@ pub fn run(ctx: Ctx) -> anyhow::Result<()> {
         if let Some(s) = snap {
             last_rev = s.rev;
             let p = ui.global::<PlayerVM>();
+            cur_pos.set(s.pos_ms);
+            *cur_song.borrow_mut() = s.song.clone();
             if s.path != last_path {
                 last_path = s.path.clone();
+                // A new song starts without a practice loop.
+                loop_ab.set((None, None));
+                show_loop(&ui, (None, None), 1);
                 let lvm = ui.global::<LibraryVM>();
                 match (&s.song, &s.load_error) {
                     (Some(song), _) => {
@@ -577,6 +786,14 @@ pub fn run(ctx: Ctx) -> anyhow::Result<()> {
                 .into(),
             );
             p.set_streak(st.streak.to_string().into());
+            p.set_looping(s.loop_range.is_some());
+            p.set_loop_text(
+                match s.loop_range {
+                    Some(_) => format!("#{}", s.loops + 1),
+                    None => String::new(),
+                }
+                .into(),
+            );
             p.set_wrong(st.wrong.to_string().into());
             p.set_prompt(
                 if s.state == State::Waiting && !s.waiting.is_empty() {
