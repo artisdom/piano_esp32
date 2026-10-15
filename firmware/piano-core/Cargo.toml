@@ -10,3 +10,5 @@ license = "Apache-2.0"
 [workspace]
 
 [dependencies]
+# zlib inflate for song packs (pure Rust; deflate is used by the PC-side builder).
+miniz_oxide = { version = "0.8", default-features = false, features = ["with-alloc"] }

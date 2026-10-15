@@ -1,0 +1,397 @@
+// Piano Coach — minimal UI for small panels (UI=mini boards: 320×170 bar,
+// 240×240 round). Everything is a three-row wheel menu (previous, focused,
+// next) or the play screen; the Rust side (src/ui_mini.rs) owns the menus
+// and feeds only the visible rows. Input: one key (tap / double tap / hold),
+// the piano's lowest keys, and — on touch boards — taps and swipes.
+import "../fonts/NotoSansSC-Piano.otf";
+import { Glyphs } from "@board/glyphs.slint";
+import { Theme } from "../theme.slint";
+import { Icon } from "../icons.slint";
+
+export struct Row {
+    icon: string,
+    title: string,
+    sub: string,
+    value: string,
+}
+
+export global MiniVM {
+    in property <bool> round;
+    // 0 menu, 1 play
+    in property <int> page;
+    in property <string> header;
+    in property <string> footer;
+    in property <bool> connected;
+    // previous, focused, next (an empty title = no row there)
+    in property <[Row]> rows: [{}, {}, {}];
+
+    // Play screen
+    in property <string> song;
+    in property <string> mode;
+    // 0 stopped, 1 playing, 2 waiting for you, 3 paused, 4 finished
+    in property <int> state;
+    in property <float> progress;
+    in property <string> time;
+    in property <string> cue;
+    in property <color> cue-color: Theme.text;
+    in property <string> hint;
+    in property <string> stats;
+    in property <int> stars;
+    in property <string> result;
+
+    in property <string> toast;
+
+    callback tap-row(int);
+    callback tap-play();
+}
+
+component Dot inherits Rectangle {
+    in property <bool> on;
+    width: 8px;
+    height: 8px;
+    border-radius: 4px;
+    background: on ? Theme.ok : Theme.faint;
+}
+
+component SideRow inherits Rectangle {
+    in property <Row> entry;
+    in property <length> fs;
+    callback clicked();
+    Text {
+        x: 0;
+        width: parent.width;
+        text: entry.title;
+        font-size: fs;
+        color: Theme.dim;
+        overflow: elide;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+component FocusRow inherits Rectangle {
+    in property <Row> entry;
+    in property <length> fs;
+    in property <length> fs-sub;
+    callback clicked();
+    border-radius: 12px;
+    background: Theme.raised;
+    border-width: 1px;
+    border-color: Theme.accent;
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        spacing: 8px;
+        if entry.icon != "": VerticalLayout {
+            alignment: center;
+            Icon {
+                name: entry.icon;
+                size: fs;
+                tint: Theme.accent;
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            Text {
+                text: entry.title;
+                font-size: fs;
+                color: Theme.text;
+                overflow: elide;
+            }
+            if entry.sub != "": Text {
+                text: entry.sub;
+                font-size: fs-sub;
+                color: Theme.dim;
+                overflow: elide;
+            }
+        }
+        if entry.value != "": Text {
+            text: entry.value;
+            font-size: fs - 2px;
+            color: Theme.warn;
+            vertical-alignment: center;
+            horizontal-alignment: right;
+        }
+    }
+    TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+component Menu inherits Rectangle {
+    property <bool> round: MiniVM.round;
+    // Bar 320×170: header 26 / rows / footer 18. Round 240×240: everything
+    // inside the circle.
+    property <length> top: round ? 46px : 26px;
+    property <length> foot: round ? 44px : 18px;
+    property <length> side-h: round ? 38px : 30px;
+    property <length> gap: 2px;
+    property <length> focus-h: root.height - top - foot - 2 * side-h - 2 * gap;
+    property <length> side-w: round ? 176px : root.width - 24px;
+    property <length> focus-w: round ? 216px : root.width - 12px;
+
+    // Header: connection dot + current folder / song.
+    if !round: Rectangle {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: 26px;
+        background: Theme.surface;
+        Dot {
+            x: 8px;
+            y: 9px;
+            on: MiniVM.connected;
+        }
+        Text {
+            x: 22px;
+            width: parent.width - 30px;
+            height: parent.height;
+            text: MiniVM.header;
+            font-size: 14px;
+            color: Theme.text;
+            overflow: elide;
+            vertical-alignment: center;
+        }
+    }
+    if round: Dot {
+        x: (root.width - self.width) / 2;
+        y: 10px;
+        on: MiniVM.connected;
+    }
+    if round: Text {
+        x: (root.width - self.width) / 2;
+        y: 20px;
+        width: 150px;
+        height: 22px;
+        text: MiniVM.header;
+        font-size: 14px;
+        color: Theme.text;
+        overflow: elide;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    if MiniVM.rows[0].title != "": SideRow {
+        x: (root.width - self.width) / 2;
+        y: top;
+        width: side-w;
+        height: side-h;
+        entry: MiniVM.rows[0];
+        fs: round ? 15px : 15px;
+        clicked => { MiniVM.tap-row(0); }
+    }
+    FocusRow {
+        x: (root.width - self.width) / 2;
+        y: top + side-h + gap;
+        width: focus-w;
+        height: focus-h;
+        entry: MiniVM.rows[1];
+        fs: round ? 19px : 20px;
+        fs-sub: 12px;
+        clicked => { MiniVM.tap-row(1); }
+    }
+    if MiniVM.rows[2].title != "": SideRow {
+        x: (root.width - self.width) / 2;
+        y: top + side-h + focus-h + 2 * gap;
+        width: side-w;
+        height: side-h;
+        entry: MiniVM.rows[2];
+        fs: 15px;
+        clicked => { MiniVM.tap-row(2); }
+    }
+
+    Text {
+        x: (root.width - self.width) / 2;
+        y: root.height - foot + (round ? 4px : 1px);
+        width: round ? 140px : root.width - 16px;
+        height: round ? 18px : 16px;
+        text: MiniVM.footer;
+        font-size: 11px;
+        color: Theme.faint;
+        overflow: elide;
+        horizontal-alignment: center;
+    }
+}
+
+// Progress as dots around the round panel's edge.
+component Ring inherits Rectangle {
+    in property <float> progress;
+    property <int> n: 60;
+    for i in 60: Rectangle {
+        property <angle> a: (i / n) * 360deg - 90deg;
+        x: root.width / 2 + 111px * cos(a) - 3px;
+        y: root.height / 2 + 111px * sin(a) - 3px;
+        width: 6px;
+        height: 6px;
+        border-radius: 3px;
+        background: i < root.progress * n ? Theme.accent : Theme.surface2;
+    }
+}
+
+component Play inherits Rectangle {
+    property <bool> round: MiniVM.round;
+    property <bool> done: MiniVM.state == 4;
+
+    if round: Ring {
+        width: root.width;
+        height: root.height;
+        progress: MiniVM.progress;
+    }
+
+    // Title + mode
+    Text {
+        x: round ? (root.width - self.width) / 2 : 22px;
+        y: round ? 30px : 4px;
+        width: round ? 150px : root.width - 30px;
+        height: 20px;
+        text: MiniVM.song;
+        font-size: 14px;
+        color: Theme.text;
+        overflow: elide;
+        horizontal-alignment: round ? center : left;
+    }
+    if !round: Dot {
+        x: 8px;
+        y: 10px;
+        on: MiniVM.connected;
+    }
+    Text {
+        x: round ? (root.width - self.width) / 2 : 8px;
+        y: round ? 50px : root.height - 20px;
+        width: round ? 150px : root.width / 2;
+        height: 16px;
+        text: MiniVM.mode;
+        font-size: 11px;
+        color: Theme.dim;
+        horizontal-alignment: round ? center : left;
+    }
+
+    // The cue: next keys, a big state icon, or the result.
+    if !done: Text {
+        x: 4px;
+        y: round ? 72px : 26px;
+        width: root.width - 8px;
+        height: round ? 64px : 62px;
+        text: MiniVM.cue;
+        font-size: round ? 34px : 38px;
+        color: MiniVM.cue-color;
+        overflow: elide;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    if done: HorizontalLayout {
+        // Three 34 px icons (39 px boxes) + gaps.
+        width: 3 * 39px + 2 * 6px;
+        x: (root.width - self.width) / 2;
+        y: round ? 74px : 28px;
+        height: 44px;
+        spacing: 6px;
+        for i in 3: Icon {
+            name: i < MiniVM.stars ? "star" : "star-o";
+            size: 34px;
+            tint: Theme.warn;
+        }
+    }
+    Text {
+        x: 6px;
+        y: round ? 138px : (done ? 76px : 88px);
+        width: root.width - 12px;
+        height: 18px;
+        text: done ? MiniVM.result : MiniVM.hint;
+        font-size: done ? 16px : 12px;
+        color: done ? Theme.text : Theme.dim;
+        overflow: elide;
+        horizontal-alignment: center;
+    }
+    Text {
+        x: round ? (root.width - self.width) / 2 : 6px;
+        y: round ? 162px : 110px;
+        width: round ? 170px : root.width - 12px;
+        height: 20px;
+        text: MiniVM.stats;
+        font-size: 15px;
+        color: Theme.text;
+        horizontal-alignment: center;
+    }
+
+    // Bar panel: progress bar + time.
+    if !round: Rectangle {
+        x: 8px;
+        y: root.height - 30px;
+        width: root.width - 16px;
+        height: 5px;
+        border-radius: 2.5px;
+        background: Theme.surface2;
+        Rectangle {
+            x: 0;
+            width: parent.width * clamp(MiniVM.progress, 0, 1);
+            height: parent.height;
+            border-radius: 2.5px;
+            background: Theme.accent;
+        }
+    }
+    Text {
+        x: round ? (root.width - self.width) / 2 : root.width / 2;
+        y: round ? 186px : root.height - 20px;
+        width: round ? 120px : root.width / 2 - 8px;
+        height: 16px;
+        text: MiniVM.time;
+        font-size: 11px;
+        color: Theme.dim;
+        horizontal-alignment: round ? center : right;
+    }
+    TouchArea {
+        clicked => { MiniVM.tap-play(); }
+    }
+}
+
+export component MiniApp inherits Window {
+    preferred-width: 240px;
+    preferred-height: 240px;
+    background: Theme.bg;
+    default-font-family: "Noto Sans CJK SC";
+    default-font-size: 15px;
+
+    if MiniVM.page == 0: Menu {
+        width: root.width;
+        height: root.height;
+    }
+    if MiniVM.page == 1: Play {
+        width: root.width;
+        height: root.height;
+    }
+
+    if MiniVM.toast != "": Rectangle {
+        x: (root.width - self.width) / 2;
+        y: MiniVM.round ? root.height - 62px : root.height - 40px;
+        width: min(root.width - (MiniVM.round ? 48px : 16px), toast-text.preferred-width + 24px);
+        height: 30px;
+        border-radius: 15px;
+        background: #000000d0;
+        border-width: 1px;
+        border-color: Theme.border;
+        toast-text := Text {
+            x: 12px;
+            width: parent.width - 24px;
+            height: parent.height;
+            text: MiniVM.toast;
+            font-size: 13px;
+            color: Theme.text;
+            overflow: elide;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+    }
+
+    // Never shown: makes slint-build embed every glyph the board's song pack
+    // names use (boards/<board>/glyphs.slint, written by tools/songs.sh).
+    Text {
+        visible: false;
+        width: 0;
+        height: 0;
+        text: Glyphs.all;
+    }
+}

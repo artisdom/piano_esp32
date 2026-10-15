@@ -10,6 +10,7 @@
 //! * [`synth`] — polyphonic additive piano synthesizer for the Tab5 speaker.
 //! * [`progress`] — bookmarks, best scores and play history per song.
 //! * [`sphere`] — the spinning "song globe" library view (math + pixels).
+//! * [`songpack`] — read-only song library in one flash blob (no-SD boards).
 //! * [`search`] — library-wide song search by Latin text, pinyin or initials.
 
 pub mod blemidi;
@@ -20,6 +21,7 @@ mod pinyin_table;
 pub mod search;
 pub mod smf;
 pub mod song;
+pub mod songpack;
 pub mod sphere;
 pub mod synth;
 pub mod usbmidi;

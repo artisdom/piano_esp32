@@ -12,8 +12,19 @@ use log::{info, warn};
 use piano_core::engine::{Engine, Msg, Options, State, Stats, ALL_NOTES_OFF};
 use piano_core::song::{HandSel, Song, Step, KEY_HI, KEY_LO};
 
-use crate::audio::SharedSynth;
 use crate::link::KeyEvent;
+use crate::prefs;
+
+/// The speaker synth shared with the audio thread (boards with a speaker).
+pub type SharedSynth = Arc<Mutex<piano_core::synth::Synth>>;
+
+/// Piano keys that steer the small boards' menus while no song is playing:
+/// the four lowest white keys, A0 ◀, B0 ▶, C1 OK, D1 back.
+pub const NAV_PREV: u8 = 21;
+pub const NAV_NEXT: u8 = 23;
+pub const NAV_OK: u8 = 24;
+pub const NAV_BACK: u8 = 26;
+const NAV_KEYS: [u8; 4] = [NAV_PREV, NAV_NEXT, NAV_OK, NAV_BACK];
 
 /// Where played notes sound (Settings → "Notes sound from").
 pub static SOUND: AtomicU8 = AtomicU8::new(SOUND_PIANO);
@@ -26,7 +37,11 @@ pub const SOUND_BOTH: u8 = 2;
 /// Hint LEDs (Note On velocity 1) only ever go to the piano. With the
 /// speaker selected, audible notes play on the synth while the piano gets a
 /// silent velocity-1 Note On, so its LEDs still follow the music.
-fn route(m: Msg, out: &Sender<Msg>, synth: &SharedSynth) {
+fn route(m: Msg, out: &Sender<Msg>, synth: Option<&SharedSynth>) {
+    let Some(synth) = synth else {
+        let _ = out.send(m);
+        return;
+    };
     let mode = SOUND.load(Ordering::Relaxed);
     let audible_on = m[0] & 0xf0 == 0x90 && m[2] > 1;
     match mode {
@@ -91,7 +106,8 @@ pub fn start(
     keys: Receiver<KeyEvent>,
     out: Sender<Msg>,
     initial: Options,
-    synth: SharedSynth,
+    synth: Option<SharedSynth>,
+    nav: Option<Sender<u8>>,
 ) -> Shared {
     let shared: Shared = Arc::new(Mutex::new(Snapshot {
         opts: initial,
@@ -103,8 +119,8 @@ pub fn start(
     let sh = shared.clone();
     std::thread::Builder::new()
         .name("player".into())
-        .stack_size(16 * 1024)
-        .spawn(move || run(cmds, keys, out, sh, initial, synth))
+        .stack_size(12 * 1024)
+        .spawn(move || run(cmds, keys, out, sh, initial, synth, nav))
         .expect("spawn player");
     shared
 }
@@ -115,7 +131,8 @@ fn run(
     out: Sender<Msg>,
     sh: Shared,
     initial: Options,
-    synth: SharedSynth,
+    synth: Option<SharedSynth>,
+    nav: Option<Sender<u8>>,
 ) {
     let t0 = Instant::now();
     let now_ms = || t0.elapsed().as_millis() as u64;
@@ -138,8 +155,10 @@ fn run(
                     if let Some(e) = engine.as_mut() {
                         e.stop(&mut buf);
                     }
-                    match std::fs::read(&path)
-                        .map_err(|e| e.to_string())
+                    // Free the old song before parsing the next (small RAM).
+                    engine = None;
+                    set_loaded(&sh, None, None, None);
+                    match crate::songs::read(&path)
                         .and_then(|b| Song::parse(&b).map_err(|e| e.to_string()))
                     {
                         Ok(song) if song.notes.is_empty() => {
@@ -147,16 +166,17 @@ fn run(
                             set_loaded(&sh, None, Some(path), Some("This file has no notes".into()));
                         }
                         Ok(song) => {
+                            let song = Arc::new(song);
+                            engine = Some(Engine::new(song.clone(), opts));
                             info!(
-                                "loaded {} — {} notes, {} tracks, {:.0} bpm, split {:?}",
+                                "loaded {} — {} notes, {} tracks, {:.0} bpm, split {:?}; heap free {} KB",
                                 path.display(),
                                 song.notes.len(),
                                 song.note_tracks,
                                 song.bpm,
-                                song.split
+                                song.split,
+                                unsafe { esp_idf_svc::sys::esp_get_free_heap_size() } / 1024
                             );
-                            let song = Arc::new(song);
-                            engine = Some(Engine::new(song.clone(), opts));
                             set_loaded(&sh, Some(song), Some(path), None);
                         }
                         Err(err) => {
@@ -247,6 +267,14 @@ fn run(
 
         while let Ok(k) = keys.try_recv() {
             dirty = true;
+            // Menu keys: only while nothing is being played.
+            let idle = !engine.as_ref().is_some_and(|e| matches!(e.state(), State::Playing | State::Waiting));
+            if let (Some(nav), KeyEvent::Down { key, .. }) = (nav.as_ref(), k) {
+                if idle && NAV_KEYS.contains(&key) {
+                    let _ = nav.send(key);
+                    continue;
+                }
+            }
             match k {
                 KeyEvent::Down { key, .. } => {
                     pressed[key as usize & 127] = true;
@@ -275,7 +303,7 @@ fn run(
             }
         }
         for m in buf.drain(..) {
-            route(m, &out, &synth);
+            route(m, &out, synth.as_ref());
         }
 
         // Publish at most every 15 ms (the UI frames at ~30–60 Hz).
@@ -323,6 +351,25 @@ fn set_loaded(sh: &Shared, song: Option<Arc<Song>>, path: Option<PathBuf>, err: 
     s.path = path;
     s.load_error = err;
     s.rev += 1;
+}
+
+/// The engine options saved in NVS (Play page and Settings).
+pub fn saved_options() -> Options {
+    use piano_core::engine::Mode;
+    Options {
+        mode: match prefs::get_i32("mode") {
+            Some(0) => Mode::Listen,
+            Some(2) => Mode::Follow,
+            _ => Mode::Learn,
+        },
+        hands: hands_from(prefs::get_i32("hands").unwrap_or(0)),
+        tempo_pct: prefs::get_i32("tempo").unwrap_or(100).clamp(25, 200) as u16,
+        accompany: prefs::get_bool("accompany", true),
+        easy: prefs::get_bool("easy", false),
+        led_off_on_hit: prefs::get_bool("ledoff", true),
+        lead_ms: prefs::get_i32("lead").unwrap_or(700).clamp(200, 1500) as u32,
+        hint_vel: 1,
+    }
 }
 
 /// Engine option helpers for the UI.

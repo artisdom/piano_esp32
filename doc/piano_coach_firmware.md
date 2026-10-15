@@ -1,15 +1,19 @@
 # Piano Coach — firmware
 
-Rust firmware for ESP32 dev boards that plays MIDI songs from
-the microSD card on the GZUT 88-key LED piano and teaches them. In
+Rust firmware for ESP32 dev boards that plays MIDI songs on the GZUT
+88-key LED piano and teaches them. In
 **Learn** mode the piano's red key LEDs show the next chord, and the song
 waits until you play it. The piano connects over **USB** (the board's
-USB-A host port) or **Bluetooth LE**, selectable in Settings.
+USB-A host port) or **Bluetooth LE**, selectable in Settings. The small
+boards have a minimal UI, keep their songs in flash and use Bluetooth
+([Small boards](#small-boards-minimal-ui)).
 
 | Board | MCU | Display | Notes |
 |---|---|---|---|
 | M5Stack Tab5 | ESP32-P4 | 5″ 1280×720 | BLE via its ESP32-C6; side power button |
 | ESP32-S31-Korvo-1 V1.1 | ESP32-S31 (dual RISC-V 320 MHz, native Wi-Fi 6 / BLE 5.4) | 4.3″ 800×480 (SUB3), UI at 0.625 scale | no backlight control; shut down = deep sleep (RESET restarts); PLAY / SET / VOL± buttons |
+| ESP32-1732S019 | ESP32-S3 (Xtensa, 16 MB flash, 8 MB PSRAM) | 1.9″ 170×320 ST7789, used as 320×170, no touch | minimal UI; BLE only; all 2449 songs in flash; BOOT key |
+| ESP32-2424S012C | ESP32-C3 (RISC-V 160 MHz, 400 KB RAM, 4 MB flash) | 1.28″ round 240×240 GC9A01 + CST816D touch | minimal UI; BLE only; 776 songs (≤ 1200 notes) in flash; BOOT key |
 
 Board support is a layer of its own (`firmware/piano-coach/src/board/`,
 `boards/`); see [boards/README.md](../firmware/piano-coach/boards/README.md)
@@ -102,6 +106,55 @@ under the finger, for checking a touch panel), **Light all keys** / **All off** 
 piano's last panel change (volume/tone from its vendor SysEx), and SD
 **Rescan** (also mounts a card inserted after boot).
 
+## Small boards (minimal UI)
+
+The ESP32-1732S019 (1.9″ bar) and ESP32-2424S012C (1.28″ round,
+watch-like) have no microSD slot, USB host or speaker. Piano Coach keeps
+a **song pack** in their flash, reaches the piano over **Bluetooth**
+only (it connects to `GZUT-MIDI` by itself; the dot top-left/top-centre
+turns green) and has a minimal UI with the essentials:
+
+* **Library** — a wheel of folders and songs (the focused row in the
+  middle, its neighbours above and below, "3 / 41" at the bottom);
+  songs show their best stars. The first row is **Settings** at the top
+  level and **Back** in folders.
+* **Song** — **Learn**, **Follow**, **Listen** (with best score),
+  **Hands** (Both / Right / Left) and **Tempo** (50–120 %), then Back.
+* **Play** — the next keys to play in large letters (red, like the
+  LEDs), "Play the lit keys" while Learn waits, ✓ / ✕ counts, time and
+  progress (a bar, or a ring of dots around the round screen). At the end:
+  stars, accuracy and "New best!". Best Learn / Follow scores per song
+  are kept in NVS.
+* **Settings** — easy mode, hint off on hit, accompaniment, follow lead
+  time, brightness, **Light all keys**, **All LEDs off**, board/version/
+  song count, **Sleep** (deep sleep; BOOT wakes the 1.9″ board, a touch
+  wakes the round one, RESET wakes both).
+
+Controls:
+
+| | Menus | Playing |
+|---|---|---|
+| BOOT tap | next row | pause / resume (restart when finished) |
+| BOOT double tap | previous row | restart |
+| BOOT hold (0.6 s) | open / OK | back to the song menu |
+| Touch (round board) | tap a row; swipe up/down to scroll; swipe right = back | tap = pause / resume; swipe right = back |
+| Piano keys (while nothing plays) | **A0** previous, **B0** next, **C1** OK, **D1** back | when paused/finished: C1 resume, D1 back, A0 restart |
+
+The four lowest white keys steer the menus only while no song is playing
+or waiting for you, so they never interfere with a lesson.
+
+**Songs**: `tools/songs.sh <board> build` packs the library (default
+`~/w/piano/midi-piano/assets/midi`) into `target/<board>/songs.bin` with
+the board's `SONGPACK_ARGS`, and writes `boards/<board>/glyphs.slint` —
+the characters of the packed names, which the firmware embeds (rebuild
+after it changes). `tools/songs.sh <board> flash --port …` writes the
+pack to the `songs` partition; the firmware is flashed separately, and
+neither overwrites the other. The 1.9″ board takes the whole library
+(8.9 MB in 11.9 MB); the round board takes 1.4 MB: the children's,
+revolutionary and film categories first, then others, only songs with
+≤ 1200 notes (a song's engine data must fit beside Bluetooth and the
+UI in the C3's ~150 KB of free heap).
+
 Hands are assigned from track names (left/right/左/右), else the
 higher-pitched of two tracks is the right hand, else notes split at middle
 C. In the bundled JustPiano library 2200 of 2449 songs have exactly two
@@ -127,6 +180,17 @@ tools/board.sh korvo build --release
 tools/board.sh korvo run   --release -- --port /dev/ttyUSB3
 ```
 
+Small boards (Xtensa needs the esp-rs toolchain: `espup install --name
+esp198 --toolchain-version 1.98.1.0 --targets esp32s3 --std`, Slint needs
+Rust ≥ 1.92; `tools/board.sh` picks it and its libclang):
+
+```bash
+tools/songs.sh 1732s019 build && tools/songs.sh 1732s019 flash --port /dev/ttyUSB0 --baud 921600
+tools/board.sh 1732s019 run --release -- --port /dev/ttyUSB0
+tools/songs.sh 2424s012 build && tools/songs.sh 2424s012 flash --port /dev/ttyACM0
+tools/board.sh 2424s012 run --release -- --port /dev/ttyACM0
+```
+
 `run` flashes the ELF **with the same build's bootloader and partition
 table** (`flash.sh`): espflash on the Tab5 (its bundled P4 bootloader does
 not boot rev-1.x silicon), `tools/flash-idf.py` on the S31: espflash cannot package S31
@@ -139,7 +203,8 @@ Each board builds into `target/<board>` with its own `sdkconfig.<board>`.
 Do not use `espflash monitor --before no-reset`: it leaves the chip in
 the ROM bootloader.
 
-Host tests (SMF parser, engine incl. loops, codecs, search, synth, globe; also parses and indexes the whole library at
+Host tests (SMF parser, engine incl. loops, codecs, search, synth, globe,
+song packs; also parses and indexes the whole library at
 `~/w/piano/midi-piano/assets/midi` or `$PIANO_MIDI_DIR`):
 
 ```bash
@@ -156,6 +221,17 @@ embedded fonts and writes PNGs to `/tmp/piano-ui-preview` (or
 cd firmware/piano-coach/tests/ui_preview
 cargo +stable run --release --target x86_64-unknown-linux-gnu
 ```
+
+The minimal UI has its own preview (bar and round screens, menu / song /
+settings / play / result → `mini-*.png`):
+
+```bash
+cd firmware/piano-coach/tests/mini_preview
+cargo +stable run --release --target x86_64-unknown-linux-gnu
+```
+
+`piano-core/examples/memprobe.rs` prints the heap a song needs (parse
+peak, song, engine) — the numbers behind the round board's note limit.
 
 Fonts: `tools/make_font.py` (needs `pip install fonttools`) regenerates
 `ui/fonts/NotoSansSC-Piano.otf` (Noto Sans CJK SC subset: ASCII,
@@ -242,6 +318,35 @@ piano-core: smf · song · engine · usbmidi · blemidi · library · search ·
   dots from a cached background, then stamps anti-aliased dot sprites with
   integer blending; Slint is made to repaint fully when the globe is hidden
   or moves, so no stale dots survive. ~10 fps while spinning.
+* **Board classes** (`boards/<board>/board.env` `UI=` / `HAS=`, turned
+  into `cfg(ui_full)` / `cfg(ui_mini)` / `cfg(has_usb|has_sd|has_speaker)`
+  by build.rs): the full UI (`ui.rs`, `ui/app.slint`) on framebuffer
+  boards; the minimal UI (`ui_mini.rs`, `ui/mini/app.slint`) on small SPI
+  panels. `board/contract.rs` checks the common items plus the class's
+  own (framebuffer, audio, USB, SD — or `lcd_init` / `lcd_draw` /
+  `touch_point`).
+* **Minimal UI rendering**: no framebuffer (the C3 cannot spare
+  115 KB): Slint's `render_by_line` renders only the dirty region, lines
+  with the same x-range are gathered into a 10-line DMA band, byte-swapped
+  to big-endian RGB565 and sent with `esp_lcd_panel_draw_bitmap`; the
+  call waits on the transfer-done interrupt (`board/spi_lcd.rs`). The
+  menus are Rust-side lists; Slint only gets the three visible rows. The
+  BOOT key is debounced and decoded into tap / double tap / hold
+  (`board/key.rs`); the CST816D is read over I2C each frame and swipes are
+  classified in `ui_mini.rs` (taps are passed to Slint's TouchAreas).
+* **Song pack** (`piano-core/src/songpack.rs`, `songs.rs`): a 32-byte
+  header, a 28-byte-per-entry tree index (folders' children contiguous in
+  library order), names, then zlib-compressed MIDI files. The firmware
+  memory-maps the `songs` partition (no RAM for the index), validates
+  the index CRC, and inflates one song on load into an exact-size buffer
+  with a heap-allocated decompressor (miniz_oxide's helpers build its
+  11 KB state — the stream API also a 32 KB window — on the stack first).
+  Pack songs are virtual paths `/pack/<index>`, so the player loads them
+  like files.
+* **Lean parsing** (all boards): the parser keeps only the currently held
+  notes per track (it had 2048 per-key queues — 24 KB per track on a
+  32-bit MCU) and track names stay off the event list; a 300-note song
+  went from a 99 KB to a 34 KB peak.
 * Release builds use `opt-level = 3` for piano-core, the firmware and
   Slint's software renderer (`"s"` elsewhere): the globe's projection/sort
   went from 15 to 4.5 ms. Image ≈ 7.6 MB of the 12 MB partition.
@@ -282,6 +387,21 @@ master v6.1-dev (4d59230ddff).
 | ES8389 codec initialised (48 kHz stereo); four ADC keys created | ✔ (sound and key presses not yet checked) |
 | BLE, speaker playback, PLAY / SET / VOL± keys, song globe | not yet verified |
 
+1.9″ ESP32-1732S019 (ESP32-S3 rev 0.2, 16 MB flash, 8 MB PSRAM) and
+1.28″ ESP32-2424S012C (ESP32-C3 rev 0.4, 4 MB flash, CST816D touch):
+
+| Check | 1.9″ (S3) | 1.28″ round (C3) |
+|---|---|---|
+| Boot, display orientation and colours | ✔ | ✔ (after un-mirroring X) |
+| Song pack mounted | ✔ 2449 songs, 8.9 MB | ✔ 776 songs, 1.33 MB |
+| BLE: connects to GZUT-MIDI by itself | ✔ | ✔ (~2.5 s after boot) |
+| Learn: LEDs light, playing advances | ✔ | ✔ |
+| BOOT tap / double tap / hold | ✔ | ✔ |
+| Touch: tap rows, swipe scroll, swipe-right back | — | ✔ |
+| Piano keys A0/B0/C1/D1 as menu keys | ✔ | not separately tried (same code) |
+| Heap | 8.3 MB free (PSRAM) | 155 KB idle; 88 KB with a 761-note song, 40 KB low-water |
+| App image | 2.9 MB of 4 MB | 2.3 MB of 2.5 MB (Slint built for size) |
+
 ## Known limits / ideas
 
 * Search uses each hanzi's most common reading (pypinyin, without
@@ -296,5 +416,9 @@ master v6.1-dev (4d59230ddff).
   levels anyway).
 * Korvo: the top-bar Settings tab sits in the bench unit's dead touch
   strip; use SET to get there (or a panel without the defect).
+* Small boards: no search, bookmarks, A–B loop, speaker or song globe;
+  the round board's pack holds songs up to 1200 notes and loading one
+  takes ~1.4 s (the C3 has no FPU). Long folders are browsed a row at a
+  time (swipes move several rows).
 * If the C6 has factory firmware, BLE mode reports "C6 Bluetooth
   unavailable" — update it (herdline's `c6ota` feature does this over WiFi).

@@ -63,6 +63,8 @@ default = ["board-tab5"]
 # (src/board/<board>/mod.rs, `CAPS`), not through Cargo features.
 board-tab5 = []
 board-korvo = []
+board-1732s019 = []
+board-2424s012 = []
 
 # Each board's native components (BSP etc.) are listed in
 # boards/<board>/esp-idf-components.toml, selected through

@@ -37,6 +37,7 @@ static CONN: AtomicU16 = AtomicU16::new(NO_CONN);
 static CONNECT_DONE: AtomicBool = AtomicBool::new(false);
 static VAL_HANDLE: AtomicU16 = AtomicU16::new(0);
 static MTU: AtomicU16 = AtomicU16::new(23);
+static DISCONNECT_REASON: AtomicU16 = AtomicU16::new(0);
 static FOUND: Mutex<Option<nb::ble_addr_t>> = Mutex::new(None);
 static RX: Mutex<Option<Sender<Vec<u8>>>> = Mutex::new(None);
 
@@ -112,6 +113,9 @@ extern "C" fn on_gap(event: *mut nb::ble_gap_event, _arg: *mut core::ffi::c_void
                 CONNECT_DONE.store(true, Ordering::SeqCst);
             }
             nb::BLE_GAP_EVENT_DISCONNECT => {
+                // Reason: BLE_HS_ERR_HCI_BASE (0x200) + HCI code, e.g. 0x208
+                // supervision timeout, 0x213 remote user terminated.
+                DISCONNECT_REASON.store(ev.__bindgen_anon_1.disconnect.reason as u16, Ordering::SeqCst);
                 CONN.store(NO_CONN, Ordering::SeqCst);
                 VAL_HANDLE.store(0, Ordering::SeqCst);
             }
@@ -183,7 +187,7 @@ fn bring_up(status: &Status) -> anyhow::Result<()> {
         nb::nimble_port_freertos_init(Some(host_task));
     }
     wait("Bluetooth host sync", 15, || SYNCED.load(Ordering::SeqCst))?;
-    info!("ble-midi: NimBLE host synced with the C6 controller");
+    info!("ble-midi: NimBLE host synced with the controller");
     Ok(())
 }
 
@@ -313,6 +317,6 @@ fn manager(out: Receiver<[u8; 3]>, keys: Sender<KeyEvent>, status: &Status) -> a
             }
             std::thread::sleep(Duration::from_millis(2));
         }
-        warn!("ble-midi: piano disconnected");
+        warn!("ble-midi: piano disconnected (reason 0x{:03x})", DISCONNECT_REASON.load(Ordering::SeqCst));
     }
 }

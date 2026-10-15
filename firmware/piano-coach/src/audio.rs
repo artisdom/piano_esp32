@@ -30,7 +30,7 @@ const BLOCK: usize = 256;
 /// Speaker volume 0–100 (codec output volume).
 pub static VOLUME: AtomicI32 = AtomicI32::new(70);
 
-pub type SharedSynth = Arc<Mutex<Synth>>;
+pub use crate::player::SharedSynth;
 
 pub fn start() -> SharedSynth {
     let synth = Arc::new(Mutex::new(Synth::new(SAMPLE_RATE)));

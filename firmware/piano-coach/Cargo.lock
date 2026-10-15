@@ -3698,6 +3698,9 @@ dependencies = [
 [[package]]
 name = "piano-core"
 version = "0.1.0"
+dependencies = [
+ "miniz_oxide 0.8.9",
+]
 
 [[package]]
 name = "pico-args"

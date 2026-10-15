@@ -1,24 +1,34 @@
 //! Piano Coach — play & learn firmware for the GZUT LED piano on ESP32 dev
-//! boards (M5Stack Tab5, ESP32-S31-Korvo-1; see src/board/).
+//! boards (M5Stack Tab5, ESP32-S31-Korvo-1, ESP32-1732S019, ESP32-2424S012;
+//! see src/board/).
 //!
-//! Plays MIDI files from the microSD card on the GZUT 88-key LED piano and
-//! teaches them: in Learn mode the piano's red key LEDs show the next chord
-//! and the song waits until it is played. The piano is reached over USB (the
-//! board's USB-A host port) or Bluetooth LE, chosen in Settings; see
+//! Plays MIDI songs on the GZUT 88-key LED piano and teaches them: in Learn
+//! mode the piano's red key LEDs show the next chord and the song waits
+//! until it is played. Large boards (`ui_full`) read the microSD card and
+//! reach the piano over USB (their USB-A host port) or Bluetooth LE; small
+//! boards (`ui_mini`) keep a song pack in flash and use Bluetooth LE. See
 //! doc/piano_coach_firmware.md.
 //!
-//! Threads: `app` (boot), `ui` (Slint render + touch), `player` (engine
+//! Threads: `app` (boot), `ui` (Slint render + input), `player` (engine
 //! clock), and the transport's own task (`usb-midi` or NimBLE host).
 
+#[cfg(has_speaker)]
 mod audio;
 mod ble_midi;
 mod board;
+#[cfg(ui_full)]
 mod globe;
 mod link;
 mod player;
 mod prefs;
+mod songs;
+#[cfg(ui_full)]
 mod store;
+#[cfg(ui_full)]
 mod ui;
+#[cfg(ui_mini)]
+mod ui_mini;
+#[cfg(has_usb)]
 mod usb_midi;
 
 use std::sync::mpsc::channel;
@@ -43,22 +53,25 @@ fn run_app() {
     info!("piano-coach {} on {}", env!("CARGO_PKG_VERSION"), board::CAPS.name);
     board::early_init();
     prefs::init();
-    let transport = match prefs::get_i32("transport") {
-        Some(1) => Transport::Ble,
-        _ => Transport::Usb,
+    let transport = if board::CAPS.usb_midi && prefs::get_i32("transport") != Some(1) {
+        Transport::Usb
+    } else {
+        Transport::Ble
     };
     board::init_power(transport);
+    #[cfg(has_sd)]
     let sd_ok = board::mount_sd();
 
     let (out_tx, out_rx) = channel();
     let (key_tx, key_rx) = channel();
     let (cmd_tx, cmd_rx) = channel();
 
-    let status = match transport {
+    let started = match transport {
+        #[cfg(has_usb)]
         Transport::Usb => usb_midi::start(out_rx, key_tx),
-        Transport::Ble => ble_midi::start(out_rx, key_tx),
-    }
-    .unwrap_or_else(|e| {
+        _ => ble_midi::start(out_rx, key_tx),
+    };
+    let status = started.unwrap_or_else(|e| {
         error!("{} transport failed to start: {e:#}", transport.label());
         let st = Arc::new(Status::default());
         *st.name.lock().unwrap() = format!("error — {e}");
@@ -66,23 +79,48 @@ fn run_app() {
     });
 
     // Speaker: synth + codec thread (idle until a note sounds).
-    let synth = audio::start();
-    player::SOUND.store(prefs::get_i32("sound").unwrap_or(0).clamp(0, 2) as u8, std::sync::atomic::Ordering::Relaxed);
-    audio::VOLUME.store(prefs::get_i32("spkvol").unwrap_or(70).clamp(0, 100), std::sync::atomic::Ordering::Relaxed);
-    let shared = player::start(cmd_rx, key_rx, out_tx, ui::initial_options(), synth);
-
-    let ctx = ui::Ctx {
-        cmds: cmd_tx,
-        shared,
-        status,
-        transport,
-        sd_ok,
+    #[cfg(has_speaker)]
+    let synth = {
+        let synth = audio::start();
+        player::SOUND.store(prefs::get_i32("sound").unwrap_or(0).clamp(0, 2) as u8, std::sync::atomic::Ordering::Relaxed);
+        audio::VOLUME.store(prefs::get_i32("spkvol").unwrap_or(70).clamp(0, 100), std::sync::atomic::Ordering::Relaxed);
+        Some(synth)
     };
+    #[cfg(not(has_speaker))]
+    let synth = None;
+
+    #[cfg(ui_full)]
+    {
+        let shared = player::start(cmd_rx, key_rx, out_tx, player::saved_options(), synth, None);
+        let ctx = ui::Ctx {
+            cmds: cmd_tx,
+            shared,
+            status,
+            transport,
+            sd_ok,
+        };
+        spawn_ui(96 * 1024, move || ui::run(ctx));
+    }
+    #[cfg(ui_mini)]
+    {
+        let (nav_tx, nav_rx) = channel();
+        let shared = player::start(cmd_rx, key_rx, out_tx, player::saved_options(), synth, Some(nav_tx));
+        let ctx = ui_mini::Ctx {
+            cmds: cmd_tx,
+            shared,
+            status,
+            nav: nav_rx,
+        };
+        spawn_ui(ui_mini::STACK, move || ui_mini::run(ctx));
+    }
+}
+
+fn spawn_ui(stack: usize, f: impl FnOnce() -> anyhow::Result<()> + Send + 'static) {
     std::thread::Builder::new()
         .name("ui".into())
-        .stack_size(96 * 1024)
+        .stack_size(stack)
         .spawn(move || {
-            if let Err(e) = ui::run(ctx) {
+            if let Err(e) = f() {
                 error!("ui stopped: {e:#}");
             }
         })

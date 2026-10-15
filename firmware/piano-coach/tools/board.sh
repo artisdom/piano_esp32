@@ -26,6 +26,7 @@ command="${2:-build}"
 shift $(( $# >= 2 ? 2 : 1 ))
 
 FEATURE= MCU= ESP_IDF_VERSION= IDF_PATH_DEFAULT= PICOLIBC= PATCH_EXFAT= FLASHER=
+TARGET=riscv32imafc-esp-espidf TOOLCHAIN= UI= HAS= SONGPACK_ARGS= CARGO_CONFIG=
 # shellcheck source=/dev/null
 source "boards/$board/board.env"
 
@@ -55,5 +56,26 @@ export ESP_IDF_SYS_EXTRA_COMPONENTS_FILE="$app_dir/boards/$board/esp-idf-compone
 export ESP_IDF_SDKCONFIG_DEFAULTS="$app_dir/boards/$board/sdkconfig.defaults"
 export ESP_IDF_SDKCONFIG="$app_dir/sdkconfig.$board"
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$app_dir/target/$board}"
+# A board may bring its own partition table (song pack partition).
+if [[ -f "boards/$board/partitions.csv" ]]; then
+    export ESP_IDF_GLOB_PARTTABLE_BASE="$app_dir/boards/$board"
+fi
 
-exec cargo "$command" --no-default-features --features "$FEATURE" "$@"
+# Xtensa targets need the esp-rs toolchain (TOOLCHAIN=) and its clang for
+# bindgen; RISC-V ones use the nightly from rust-toolchain.toml.
+toolchain=()
+if [[ -n "$TOOLCHAIN" ]]; then
+    toolchain=("+$TOOLCHAIN")
+    if [[ -z "${LIBCLANG_PATH:-}" ]]; then
+        for d in "$HOME/.rustup/toolchains/$TOOLCHAIN"/xtensa-esp32-elf-clang/*/esp-clang/lib; do
+            [[ -d "$d" ]] && export LIBCLANG_PATH="$d"
+        done
+    fi
+fi
+
+# Per-board Cargo settings (e.g. profile overrides), one --config each.
+config=()
+eval "cfgs=($CARGO_CONFIG)"
+for c in "${cfgs[@]}"; do config+=(--config "$c"); done
+
+exec cargo "${toolchain[@]}" "$command" "${config[@]}" --target "$TARGET" --no-default-features --features "$FEATURE" "$@"

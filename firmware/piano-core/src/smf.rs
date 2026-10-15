@@ -42,7 +42,6 @@ pub enum Kind {
     Program { ch: u8, program: u8 },
     /// µs per quarter note.
     Tempo(u32),
-    TrackName(String),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -212,16 +211,9 @@ fn parse_track(chunk: &[u8]) -> Track {
                                 });
                             }
                         }
-                        0x03 => {
-                            let name = decode_name(d);
-                            if t.name.is_empty() {
-                                t.name = name.clone();
-                            }
-                            t.events.push(Event {
-                                tick,
-                                kind: Kind::TrackName(name),
-                            });
-                        }
+                        // Only the first name counts (kept on the track, not
+                        // as an event: events stay small on the device).
+                        0x03 if t.name.is_empty() => t.name = decode_name(d),
                         _ => {}
                     }
                     // Meta and SysEx events cancel running status.

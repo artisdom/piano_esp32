@@ -109,9 +109,10 @@ impl Song {
 
         for (ti, track) in smf.tracks.iter().enumerate() {
             let ti = ti.min(255) as u8;
-            // Open notes per (channel, key): FIFO so overlapping repeats pair
-            // first-on with first-off.
-            let mut open: Vec<Vec<(f64, u8)>> = vec![Vec::new(); 16 * 128];
+            // Notes still held: (channel·128 + key, start ms, velocity), in
+            // the order they started, so overlapping repeats of a key pair
+            // first-on with first-off. Rarely more than a few dozen.
+            let mut open: Vec<(u16, f64, u8)> = Vec::new();
             let mut any = false;
             for e in &track.events {
                 match e.kind {
@@ -120,12 +121,12 @@ impl Song {
                         if ch == 9 {
                             continue;
                         }
-                        open[ch as usize * 128 + key as usize].push((tempo.ms(e.tick), vel));
+                        open.push((ch as u16 * 128 + key as u16, tempo.ms(e.tick), vel));
                     }
                     Kind::NoteOff { ch, key } => {
-                        let slot = &mut open[ch as usize * 128 + key as usize];
-                        if !slot.is_empty() {
-                            let (start, vel) = slot.remove(0);
+                        let slot = ch as u16 * 128 + key as u16;
+                        if let Some(i) = open.iter().position(|o| o.0 == slot) {
+                            let (_, start, vel) = open.remove(i);
                             raw.push(Raw {
                                 start,
                                 end: tempo.ms(e.tick),
@@ -148,17 +149,16 @@ impl Song {
             }
             // Notes never released: end them at the track's last event.
             let last = track.events.last().map(|e| tempo.ms(e.tick)).unwrap_or(0.0);
-            for (k, slot) in open.iter().enumerate() {
-                for &(start, vel) in slot {
-                    raw.push(Raw {
-                        start,
-                        end: last.max(start + 250.0),
-                        key: (k % 128) as u8,
-                        vel,
-                        track: ti,
-                    });
-                    any = true;
-                }
+            open.sort_by_key(|o| o.0);
+            for &(slot, start, vel) in &open {
+                raw.push(Raw {
+                    start,
+                    end: last.max(start + 250.0),
+                    key: (slot % 128) as u8,
+                    vel,
+                    track: ti,
+                });
+                any = true;
             }
             if any {
                 track_ids.push(ti);

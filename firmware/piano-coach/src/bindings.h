@@ -1,17 +1,19 @@
 // Extra bindgen input: the selected board's BSP plus common ESP-IDF APIs,
 // exposed to Rust as esp_idf_svc::sys::bsp. Each board adds a branch keyed
-// on its target; the common part below is used by src/board/mod.rs,
-// usb_midi.rs, ble_midi.rs and audio.rs.
+// on its target; the common parts below are used by src/board/mod.rs,
+// usb_midi.rs, ble_midi.rs, audio.rs and songs.rs.
 #include "sdkconfig.h"
 
 #if CONFIG_IDF_TARGET_ESP32P4
 // M5Stack Tab5
+# define PIANO_UI_FULL 1
 # include "bsp/m5stack_tab5.h"
 # include "bsp/display.h"
 # include "bsp/touch.h"
 # include "esp_lcd_mipi_dsi.h"
 #elif CONFIG_IDF_TARGET_ESP32S31
 // ESP32-S31-Korvo-1
+# define PIANO_UI_FULL 1
 # include "bsp/esp32_s31_korvo.h"
 # include "bsp/display.h"
 # include "bsp/usb.h"
@@ -20,17 +22,36 @@
 # include "bsp/sdcard.h"
 # include "esp_lcd_panel_rgb.h"
 # include "iot_button.h"
+#elif CONFIG_IDF_TARGET_ESP32S3
+// ESP32-1732S019: ST7789 on SPI (driver in ESP-IDF).
+# include "esp_lcd_panel_vendor.h"
+#elif CONFIG_IDF_TARGET_ESP32C3
+// ESP32-2424S012: GC9A01 on SPI (managed component), CST816D on I2C.
+# include "esp_lcd_gc9a01.h"
+# include "driver/i2c_master.h"
 #else
 # error "Piano Coach: unsupported board target — add it to src/bindings.h"
 #endif
 
-#include "esp_lcd_touch.h"
 #include "esp_lcd_panel_ops.h"
-#include "esp_cache.h"
-#include "esp_vfs_fat.h"
-#include "esp_codec_dev.h"
-#include "usb/usb_host.h"
-#include "usb/usb_helpers.h"
+#include "esp_partition.h"
+#include "esp_sleep.h"
+
+#if PIANO_UI_FULL
+// Framebuffer boards with touch, microSD, codec and USB host.
+# include "esp_lcd_touch.h"
+# include "esp_cache.h"
+# include "esp_vfs_fat.h"
+# include "esp_codec_dev.h"
+# include "usb/usb_host.h"
+# include "usb/usb_helpers.h"
+#else
+// Small SPI-panel boards.
+# include "esp_lcd_panel_io.h"
+# include "driver/spi_master.h"
+# include "driver/gpio.h"
+# include "driver/ledc.h"
+#endif
 
 // NimBLE host (esp-idf-sys's own bindings exclude BT on some targets).
 #ifdef CONFIG_BT_NIMBLE_ENABLED

@@ -385,20 +385,7 @@ fn current_options(ui: &AppWindow) -> Options {
 }
 
 pub fn initial_options() -> Options {
-    Options {
-        mode: match prefs::get_i32("mode") {
-            Some(0) => Mode::Listen,
-            Some(2) => Mode::Follow,
-            _ => Mode::Learn,
-        },
-        hands: player::hands_from(prefs::get_i32("hands").unwrap_or(0)),
-        tempo_pct: prefs::get_i32("tempo").unwrap_or(100).clamp(25, 200) as u16,
-        accompany: prefs::get_bool("accompany", true),
-        easy: prefs::get_bool("easy", false),
-        led_off_on_hit: prefs::get_bool("ledoff", true),
-        lead_ms: prefs::get_i32("lead").unwrap_or(700).clamp(200, 1500) as u32,
-        hint_vel: 1,
-    }
+    player::saved_options()
 }
 
 pub fn run(ctx: Ctx) -> anyhow::Result<()> {
@@ -931,6 +918,8 @@ pub fn run(ctx: Ctx) -> anyhow::Result<()> {
                     ui.global::<SettingsVM>().set_speaker_volume(v as f32);
                     show_toast(&format!("Speaker volume {v}%"));
                 }
+                // The single-key gestures belong to the small boards.
+                board::Button::KeyTap | board::Button::KeyDoubleTap | board::Button::KeyHold => {}
             }
         }
 

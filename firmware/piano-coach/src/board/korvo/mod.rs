@@ -31,6 +31,7 @@ pub const CAPS: Caps = Caps {
     usb_midi: true,
     ble_midi: true,
     buttons: true,
+    touch: true,
 };
 
 pub const FRAME_WIDTH: usize = 800;

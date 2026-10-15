@@ -1,0 +1,6 @@
+# ESP32-2424S012: GC9A01 panel driver from the component registry (the
+# CST816D touch is read directly over I2C, see src/board/2424s012).
+[[extra_components]]
+remote_component = { name = "espressif/esp_lcd_gc9a01", version = "^2.0" }
+bindings_header = "../../src/bindings.h"
+bindings_module = "bsp"

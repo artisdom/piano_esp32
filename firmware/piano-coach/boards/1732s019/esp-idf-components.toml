@@ -1,0 +1,5 @@
+# ESP32-1732S019: no BSP — the ST7789 driver is part of ESP-IDF's esp_lcd.
+# The bindings header still has to be generated for the NimBLE/LCD APIs.
+[[extra_components]]
+bindings_header = "../../src/bindings.h"
+bindings_module = "bsp"

@@ -8,6 +8,17 @@ linker = "ldproxy"
 runner = "./flash.sh"
 rustflags = ["--cfg", "espidf_time64"]
 
+# Small SPI-panel boards (tools/board.sh passes --target).
+[target.xtensa-esp32s3-espidf]
+linker = "ldproxy"
+runner = "./flash.sh"
+rustflags = ["--cfg", "espidf_time64"]
+
+[target.riscv32imc-esp-espidf]
+linker = "ldproxy"
+runner = "./flash.sh"
+rustflags = ["--cfg", "espidf_time64"]
+
 [unstable]
 build-std = ["std", "panic_abort"]
 

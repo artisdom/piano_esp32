@@ -30,6 +30,7 @@ pub const CAPS: Caps = Caps {
     usb_midi: true,
     ble_midi: true,
     buttons: false,
+    touch: true,
 };
 
 /// Physical (portrait) scanout geometry.

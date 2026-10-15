@@ -584,3 +584,73 @@ fn sphere_tiled_drawing_matches_full() {
     assert!(full.iter().any(|&b| b != 0));
     assert_eq!(full, tiled);
 }
+
+#[test]
+fn songpack_round_trip() {
+    use piano_core::songpack::{build, Input, Kind, Pack, PackError};
+    let midi = |n: u8| smf_bytes(&[("Piano", vec![(0, vec![0x90, 60 + n, 80]), (480, vec![0x80, 60 + n, 0])])]);
+    let inputs = vec![
+        Input { path: "B（2）/b10 - x.mid".into(), midi: midi(2), duration_ms: 500 },
+        Input { path: "B（2）/b2 - y.mid".into(), midi: midi(3), duration_ms: 500 },
+        Input { path: "A/sub/deep.mid".into(), midi: midi(4), duration_ms: 500 },
+        Input { path: "top.mid".into(), midi: midi(1), duration_ms: 500 },
+    ];
+    let bytes = build(&inputs);
+    let p = Pack::new(&bytes).unwrap();
+    let root = p.root();
+    assert_eq!(root.songs(), 4);
+    // Folders first (natural order), then songs.
+    let kids: Vec<_> = root.children().map(|i| p.node(i)).collect();
+    assert_eq!(kids.iter().map(|n| n.name).collect::<Vec<_>>(), ["A", "B（2）", "top.mid"]);
+    assert_eq!(kids[2].kind, Kind::Song);
+    let b: Vec<_> = kids[1].children().map(|i| p.node(i).name).collect();
+    assert_eq!(b, ["b2 - y.mid", "b10 - x.mid"]);
+    // Every song inflates back to its file and knows its path.
+    for i in p.songs() {
+        let path = p.path(i);
+        let src = inputs.iter().find(|s| s.path == path).expect("path round-trips");
+        assert_eq!(p.midi(i).unwrap(), src.midi);
+        assert!(Song::parse(&p.midi(i).unwrap()).is_ok());
+    }
+    assert_eq!(p.songs().len(), 4);
+    // A trailing partition tail is fine; a damaged index is not.
+    let mut padded = bytes.clone();
+    padded.extend([0xffu8; 100]);
+    assert!(Pack::new(&padded).is_ok());
+    let mut bad = bytes.clone();
+    bad[40] ^= 1;
+    assert_eq!(Pack::new(&bad).unwrap_err(), PackError::Crc);
+    assert_eq!(Pack::new(&[0xff; 64]).unwrap_err(), PackError::BadMagic);
+}
+
+/// The pack's in-place decompressor must decode every real song exactly.
+#[test]
+fn songpack_inflates_library() {
+    use piano_core::songpack::{build, Input, Pack};
+    let dir = std::env::var("PIANO_MIDI_DIR")
+        .unwrap_or_else(|_| format!("{}/w/piano/midi-piano/assets/midi", std::env::var("HOME").unwrap()));
+    let mut inputs = Vec::new();
+    let mut stack = vec![std::path::PathBuf::from(&dir)];
+    while let Some(d) = stack.pop() {
+        let Ok(rd) = std::fs::read_dir(&d) else { continue };
+        for e in rd.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                stack.push(p);
+            } else if library::is_midi(&p.to_string_lossy()) && inputs.len() < 300 {
+                let rel = p.strip_prefix(&dir).unwrap().to_string_lossy().into_owned();
+                inputs.push(Input { path: rel, midi: std::fs::read(&p).unwrap(), duration_ms: 0 });
+            }
+        }
+    }
+    if inputs.is_empty() {
+        eprintln!("no library at {dir}; skipped");
+        return;
+    }
+    let bytes = build(&inputs);
+    let p = Pack::new(&bytes).unwrap();
+    for i in p.songs() {
+        let src = inputs.iter().find(|s| s.path == p.path(i)).unwrap();
+        assert_eq!(p.midi(i).unwrap(), src.midi, "{}", src.path);
+    }
+}
