@@ -1,0 +1,4 @@
+# ESP32-P4 is RISC-V: nightly + rust-src builds std for the tier-3 target.
+[toolchain]
+channel = "nightly"
+components = ["rust-src"]

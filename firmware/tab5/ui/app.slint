@@ -1,0 +1,101 @@
+import "fonts/NotoSansSC-Piano.otf";
+import { Glyphs } from "glyphs.slint";
+import { Theme } from "theme.slint";
+import { Icon } from "icons.slint";
+import { Segmented, Chip } from "widgets.slint";
+import { AppVM, LibraryVM, PlayerVM, SettingsVM, LibEntry, KeyView, RollNote } from "state.slint";
+import { LibraryPage } from "library.slint";
+import { PlayerPage, Geometry } from "player.slint";
+import { SettingsPage } from "settings.slint";
+
+export { AppVM, LibraryVM, PlayerVM, SettingsVM, LibEntry, KeyView, RollNote, Geometry }
+
+export component AppWindow inherits Window {
+    width: 1280px;
+    height: 720px;
+    background: Theme.bg;
+    default-font-family: "Noto Sans CJK SC";
+    default-font-size: 19px;
+
+    VerticalLayout {
+        // Top bar: brand, page tabs, piano connection.
+        Rectangle {
+            height: 72px;
+            background: Theme.surface;
+            HorizontalLayout {
+                padding-left: 20px;
+                padding-right: 20px;
+                spacing: 16px;
+                Rectangle {
+                    width: 44px;
+                    height: 44px;
+                    y: (parent.height - self.height) / 2;
+                    border-radius: 22px;
+                    background: @linear-gradient(135deg, #ff5a6a 0%, #b03a8c 100%);
+                    Icon {
+                        x: (parent.width - self.width) / 2;
+                        y: (parent.height - self.height) / 2;
+                        name: "note";
+                        size: 26px;
+                        tint: #ffffff;
+                    }
+                }
+                VerticalLayout {
+                    alignment: center;
+                    Text { text: "Piano Coach"; font-size: Theme.fs-lg; font-weight: 700; color: Theme.text; }
+                    Text { text: "play · learn · follow"; font-size: Theme.fs-xs; color: Theme.dim; }
+                }
+                Rectangle { horizontal-stretch: 1; }
+                Segmented {
+                    y: (parent.height - self.height) / 2;
+                    width: 470px;
+                    options: ["Library", "Play", "Settings"];
+                    icons: ["library", "note", "settings"];
+                    selected: AppVM.page;
+                    changed(i) => { AppVM.page = i; }
+                }
+                Rectangle { horizontal-stretch: 1; }
+                Chip {
+                    y: (parent.height - self.height) / 2;
+                    width: 300px;
+                    icon: "usb";
+                    tone: AppVM.connected ? Theme.ok : Theme.faint;
+                    text: AppVM.device;
+                }
+            }
+        }
+        Rectangle {
+            if AppVM.page == 0: LibraryPage { }
+            if AppVM.page == 1: PlayerPage { }
+            if AppVM.page == 2: SettingsPage { }
+        }
+    }
+
+    // Toast
+    if AppVM.toast != "": Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: parent.height - 96px;
+        width: tt.preferred-width + 48px;
+        height: 52px;
+        border-radius: 26px;
+        background: #000000d0;
+        border-width: 1px;
+        border-color: Theme.border;
+        tt := Text {
+            text: AppVM.toast;
+            color: Theme.text;
+            font-size: Theme.fs;
+            vertical-alignment: center;
+            horizontal-alignment: center;
+        }
+    }
+
+    // Never shown: makes slint-build embed every glyph a song or folder name
+    // may use (see tools/make_font.py).
+    Text {
+        visible: false;
+        width: 0;
+        height: 0;
+        text: Glyphs.all;
+    }
+}

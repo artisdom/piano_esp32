@@ -1,0 +1,14 @@
+//! Board-independent core of the Tab5 piano player and learning firmware.
+//!
+//! * [`smf`] — Standard MIDI File parser and tempo map.
+//! * [`song`] — timed notes, hand split, chord steps.
+//! * [`engine`] — Listen / Learn / Follow state machine producing the MIDI
+//!   to send to the GZUT piano.
+//! * [`usbmidi`] — USB-MIDI 1.0 event packets.
+//! * [`library`] — sorting and naming of SD-card library entries.
+
+pub mod engine;
+pub mod library;
+pub mod smf;
+pub mod song;
+pub mod usbmidi;

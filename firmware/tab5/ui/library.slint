@@ -1,0 +1,186 @@
+import { ListView } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+import { Icon } from "icons.slint";
+import { Button, Card } from "widgets.slint";
+import { LibraryVM, LibEntry, SettingsVM } from "state.slint";
+
+component Row inherits Rectangle {
+    in property <LibEntry> entry;
+    in property <bool> selected;
+    callback clicked;
+    height: 76px;
+    border-radius: Theme.radius-sm;
+    background: selected ? Theme.raised : ta.pressed ? Theme.surface2 : transparent;
+    HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 14px;
+        spacing: 16px;
+        Rectangle {
+            width: 48px;
+            height: 48px;
+            y: (parent.height - self.height) / 2;
+            border-radius: 12px;
+            background: root.entry.is-dir ? #2a3442 : #2b2230;
+            Icon {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                name: root.entry.is-dir ? "folder" : "note";
+                size: 26px;
+                tint: root.entry.is-dir ? Theme.warn : Theme.accent;
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            spacing: 2px;
+            Text {
+                text: root.entry.title;
+                font-size: Theme.fs;
+                color: Theme.text;
+                overflow: elide;
+            }
+            if root.entry.subtitle != "": Text {
+                text: root.entry.subtitle;
+                font-size: Theme.fs-xs;
+                color: Theme.dim;
+                overflow: elide;
+            }
+        }
+        if root.entry.is-dir: Icon {
+            y: (parent.height - self.height) / 2;
+            name: "chevron";
+            tint: Theme.faint;
+        }
+    }
+    ta := TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+export component LibraryPage inherits Rectangle {
+    HorizontalLayout {
+        padding: 16px;
+        spacing: 16px;
+        Card {
+            VerticalLayout {
+                padding: 12px;
+                spacing: 8px;
+                HorizontalLayout {
+                    height: 60px;
+                    spacing: 12px;
+                    padding-left: 4px;
+                    if LibraryVM.crumbs.length > 1: Button {
+                        icon: "back";
+                        width: 56px;
+                        clicked => { LibraryVM.up(); }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        Text {
+                            text: LibraryVM.crumbs.length > 0 ? LibraryVM.crumbs[LibraryVM.crumbs.length - 1] : "Library";
+                            font-size: Theme.fs-lg;
+                            font-weight: 700;
+                            color: Theme.text;
+                            overflow: elide;
+                        }
+                        Text {
+                            text: LibraryVM.path-text;
+                            font-size: Theme.fs-xs;
+                            color: Theme.dim;
+                            overflow: elide;
+                        }
+                    }
+                }
+                Rectangle { height: 1px; background: Theme.border; }
+                if LibraryVM.entries.length == 0: VerticalLayout {
+                    alignment: center;
+                    spacing: 20px;
+                    padding: 40px;
+                    Text {
+                        text: LibraryVM.empty-text;
+                        color: Theme.dim;
+                        font-size: Theme.fs;
+                        horizontal-alignment: center;
+                        wrap: word-wrap;
+                    }
+                    HorizontalLayout {
+                        alignment: center;
+                        Button {
+                            text: "Rescan SD card";
+                            icon: "sd";
+                            clicked => { SettingsVM.rescan(); }
+                        }
+                    }
+                }
+                if LibraryVM.entries.length > 0: ListView {
+                    for e[i] in LibraryVM.entries: Row {
+                        entry: e;
+                        selected: i == LibraryVM.selected;
+                        clicked => { LibraryVM.open(i); }
+                    }
+                }
+            }
+        }
+        Card {
+            width: 420px;
+            VerticalLayout {
+                padding: 24px;
+                spacing: 14px;
+                // Album-art style tile.
+                Rectangle {
+                    height: 170px;
+                    border-radius: Theme.radius;
+                    background: @linear-gradient(135deg, #3a1d2c 0%, #1d2a3a 100%);
+                    Icon {
+                        x: (parent.width - self.width) / 2;
+                        y: (parent.height - self.height) / 2;
+                        name: LibraryVM.sel-title == "" ? "library" : "note";
+                        size: 84px;
+                        tint: LibraryVM.sel-title == "" ? Theme.faint : Theme.accent;
+                    }
+                }
+                Text {
+                    text: LibraryVM.sel-title == "" ? "Choose a song" : LibraryVM.sel-title;
+                    font-size: Theme.fs-lg;
+                    font-weight: 700;
+                    color: Theme.text;
+                    wrap: word-wrap;
+                }
+                Text {
+                    text: LibraryVM.sel-subtitle;
+                    font-size: Theme.fs;
+                    color: Theme.dim;
+                    overflow: elide;
+                }
+                Text {
+                    text: LibraryVM.sel-error != "" ? LibraryVM.sel-error : LibraryVM.sel-info;
+                    font-size: Theme.fs-sm;
+                    color: LibraryVM.sel-error != "" ? Theme.warn : Theme.dim;
+                    wrap: word-wrap;
+                }
+                Rectangle { vertical-stretch: 1; }
+                Button {
+                    text: "Learn";
+                    icon: "learn";
+                    primary: true;
+                    enabled: LibraryVM.sel-ready;
+                    clicked => { LibraryVM.start(1); }
+                }
+                HorizontalLayout {
+                    spacing: 12px;
+                    Button {
+                        text: "Follow";
+                        icon: "follow";
+                        enabled: LibraryVM.sel-ready;
+                        clicked => { LibraryVM.start(2); }
+                    }
+                    Button {
+                        text: "Listen";
+                        icon: "listen";
+                        enabled: LibraryVM.sel-ready;
+                        clicked => { LibraryVM.start(0); }
+                    }
+                }
+            }
+        }
+    }
+}

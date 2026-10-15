@@ -1,0 +1,42 @@
+// Icons are glyphs of a Font Awesome 4.7 subset (SIL OFL 1.1, built by
+// tools/make_font.py). Usage: Icon { name: "play"; tint: red; }
+import "fonts/fa-icons.ttf";
+
+export component Icon inherits Text {
+    in property <string> name;
+    in property <color> tint: #e9eef4;
+    in property <length> size: 26px;
+    width: self.size * 1.15;
+    height: self.size * 1.15;
+    font-family: "FontAwesome";
+    font-size: self.size;
+    color: self.tint;
+    horizontal-alignment: center;
+    vertical-alignment: center;
+    text:
+        name == "play" ? "\u{f04b}" :
+        name == "pause" ? "\u{f04c}" :
+        name == "stop" ? "\u{f04d}" :
+        name == "replay" ? "\u{f0e2}" :
+        name == "folder" ? "\u{f07b}" :
+        name == "note" ? "\u{f001}" :
+        name == "back" ? "\u{f060}" :
+        name == "chevron" ? "\u{f054}" :
+        name == "library" ? "\u{f03a}" :
+        name == "listen" ? "\u{f025}" :
+        name == "learn" ? "\u{f19d}" :
+        name == "follow" ? "\u{f0e4}" :
+        name == "settings" ? "\u{f013}" :
+        name == "usb" ? "\u{f287}" :
+        name == "bluetooth" ? "\u{f294}" :
+        name == "bulb" ? "\u{f0eb}" :
+        name == "minus" ? "\u{f068}" :
+        name == "plus" ? "\u{f067}" :
+        name == "sd" ? "\u{f0a0}" :
+        name == "home" ? "\u{f015}" :
+        name == "check" ? "\u{f00c}" :
+        name == "star" ? "\u{f005}" :
+        name == "bolt" ? "\u{f0e7}" :
+        name == "power" ? "\u{f011}" :
+        "";
+}

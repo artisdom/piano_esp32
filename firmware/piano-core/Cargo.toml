@@ -1,0 +1,12 @@
+[package]
+name = "piano-core"
+version = "0.1.0"
+edition = "2021"
+description = "Board-independent logic for the GZUT piano player: SMF parsing, songs, play/learn engine, USB-MIDI framing"
+license = "Apache-2.0"
+
+# Own workspace: the firmware crate cross-compiles with build-std on nightly,
+# while this crate's tests run on the host with the default toolchain.
+[workspace]
+
+[dependencies]

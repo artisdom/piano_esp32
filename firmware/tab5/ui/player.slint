@@ -1,0 +1,223 @@
+import { Theme } from "theme.slint";
+import { Icon } from "icons.slint";
+import { Button, Segmented, Card, Chip } from "widgets.slint";
+import { PlayerVM, KeyView, RollNote } from "state.slint";
+
+// Fixed geometry shared with src/ui.rs (keys and roll are laid out in Rust).
+export global Geometry {
+    out property <length> keys-width: 1248px;
+    out property <length> keys-height: 150px;
+    out property <length> roll-height: 300px;
+}
+
+component Keyboard inherits Rectangle {
+    width: Geometry.keys-width;
+    height: Geometry.keys-height;
+    // LED strip above the keys, mirroring the piano's red key LEDs.
+    for k in PlayerVM.keys: Rectangle {
+        x: k.x + (k.w - 8px) / 2;
+        y: 2px;
+        width: 8px;
+        height: 8px;
+        border-radius: 4px;
+        background: mod(k.state, 2) == 1 ? Theme.led : #2a2f37;
+    }
+    for k in PlayerVM.keys: Rectangle {
+        x: k.x;
+        y: 14px;
+        width: k.black ? k.w : k.w - 2px;
+        height: k.black ? (parent.height - 14px) * 0.62 : parent.height - 14px;
+        border-bottom-left-radius: 5px;
+        border-bottom-right-radius: 5px;
+        // pressed (blue) > wrong (amber) > lit hint/LED (red) > idle
+        background: mod(floor(k.state / 2), 2) == 1 ? Theme.pressed
+            : mod(floor(k.state / 4), 2) == 1 ? Theme.warn
+            : mod(k.state, 2) == 1 ? (k.black ? Theme.led.darker(0.1) : #ffb3bb)
+            : (k.black ? #1b1f25 : #eef1f5);
+        border-width: k.black ? 1px : 0px;
+        border-color: #000000;
+        if !k.black && k.label != "": Text {
+            y: parent.height - 24px;
+            width: parent.width;
+            horizontal-alignment: center;
+            text: k.label;
+            font-size: 11px;
+            color: #7d8794;
+        }
+    }
+}
+
+component Roll inherits Rectangle {
+    width: Geometry.keys-width;
+    height: Geometry.roll-height;
+    border-radius: Theme.radius;
+    background: @linear-gradient(180deg, #11151b 0%, #161b23 100%);
+    clip: true;
+    // Octave guide lines at each C.
+    for k in PlayerVM.keys: Rectangle {
+        visible: k.label != "";
+        x: k.x;
+        width: 1px;
+        background: #ffffff10;
+    }
+    for n in PlayerVM.roll: Rectangle {
+        x: n.x;
+        y: n.y;
+        width: n.w;
+        height: n.h;
+        border-radius: 4px;
+        background: n.kind == 0 ? Theme.right-hand
+            : n.kind == 1 ? Theme.left-hand
+            : n.kind == 2 ? Theme.led
+            : #3a4350;
+        opacity: n.kind == 3 ? 0.6 : 1.0;
+    }
+    // The "now" line where notes meet the keys.
+    Rectangle {
+        y: PlayerVM.now-line;
+        height: 3px;
+        background: Theme.led.with-alpha(0.7);
+    }
+    // Learn prompt.
+    if PlayerVM.prompt != "": Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: 16px;
+        width: pt.preferred-width + 40px;
+        height: 48px;
+        border-radius: 24px;
+        background: #000000a0;
+        pt := Text {
+            text: PlayerVM.prompt;
+            font-size: Theme.fs-lg;
+            font-weight: 700;
+            color: Theme.text;
+            vertical-alignment: center;
+            horizontal-alignment: center;
+        }
+    }
+    if !PlayerVM.loaded: Text {
+        text: "Pick a song in the Library, then press Learn, Follow or Listen.";
+        color: Theme.dim;
+        font-size: Theme.fs;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+component Stat inherits Rectangle {
+    in property <string> label;
+    in property <string> value;
+    in property <color> tone: Theme.text;
+    min-width: 92px;
+    VerticalLayout {
+        alignment: center;
+        spacing: 0px;
+        Text { text: root.value; font-size: Theme.fs-lg; font-weight: 700; color: root.tone; horizontal-alignment: center; }
+        Text { text: root.label; font-size: Theme.fs-xs; color: Theme.dim; horizontal-alignment: center; }
+    }
+}
+
+export component PlayerPage inherits Rectangle {
+    VerticalLayout {
+        padding: 16px;
+        padding-top: 10px;
+        spacing: 10px;
+        // Title + mode + hands
+        HorizontalLayout {
+            height: 60px;
+            spacing: 16px;
+            VerticalLayout {
+                alignment: center;
+                Text {
+                    text: PlayerVM.title;
+                    font-size: Theme.fs-lg;
+                    font-weight: 700;
+                    color: Theme.text;
+                    overflow: elide;
+                }
+                Text {
+                    text: PlayerVM.subtitle;
+                    font-size: Theme.fs-sm;
+                    color: Theme.dim;
+                    overflow: elide;
+                }
+            }
+            Segmented {
+                y: (parent.height - self.height) / 2;
+                options: ["Learn", "Follow", "Listen"];
+                icons: ["learn", "follow", "listen"];
+                // UI order differs from the engine's mode numbering.
+                selected: PlayerVM.mode == 1 ? 0 : PlayerVM.mode == 2 ? 1 : 2;
+                changed(i) => { PlayerVM.set-mode(i == 0 ? 1 : i == 1 ? 2 : 0); }
+            }
+            Segmented {
+                y: (parent.height - self.height) / 2;
+                options: ["Both", "Right", "Left"];
+                selected: PlayerVM.hands;
+                changed(i) => { PlayerVM.set-hands(i); }
+            }
+        }
+        // Transport, progress, tempo, stats
+        HorizontalLayout {
+            height: 64px;
+            spacing: 12px;
+            Button {
+                icon: "replay";
+                width: 60px;
+                enabled: PlayerVM.loaded;
+                clicked => { PlayerVM.restart(); }
+            }
+            Button {
+                icon: PlayerVM.state == 1 || PlayerVM.state == 2 ? "pause" : "play";
+                primary: true;
+                width: 64px;
+                enabled: PlayerVM.loaded;
+                clicked => { PlayerVM.play-pause(); }
+            }
+            Button {
+                icon: "stop";
+                width: 60px;
+                enabled: PlayerVM.loaded;
+                clicked => { PlayerVM.stop(); }
+            }
+            Text { text: PlayerVM.pos-text; font-size: Theme.fs-sm; color: Theme.dim; vertical-alignment: center; min-width: 48px; horizontal-alignment: right; }
+            Rectangle {
+                horizontal-stretch: 1;
+                Rectangle {
+                    y: (parent.height - self.height) / 2;
+                    height: 8px;
+                    border-radius: 4px;
+                    background: Theme.raised;
+                }
+                Rectangle {
+                    x: 0;
+                    y: (parent.height - self.height) / 2;
+                    height: 8px;
+                    width: parent.width * PlayerVM.progress;
+                    border-radius: 4px;
+                    background: Theme.accent;
+                }
+                TouchArea {
+                    enabled: PlayerVM.loaded;
+                    clicked => { PlayerVM.seek(max(0, min(1, self.mouse-x / self.width))); }
+                }
+            }
+            Text { text: PlayerVM.dur-text; font-size: Theme.fs-sm; color: Theme.dim; vertical-alignment: center; min-width: 48px; }
+            Rectangle { width: 8px; }
+            Button { icon: "minus"; width: 52px; clicked => { PlayerVM.tempo-step(-10); } }
+            VerticalLayout {
+                alignment: center;
+                min-width: 72px;
+                Text { text: PlayerVM.tempo + "%"; font-size: Theme.fs-lg; font-weight: 700; color: Theme.text; horizontal-alignment: center; }
+                Text { text: "tempo"; font-size: Theme.fs-xs; color: Theme.dim; horizontal-alignment: center; }
+            }
+            Button { icon: "plus"; width: 52px; clicked => { PlayerVM.tempo-step(10); } }
+            Rectangle { width: 8px; }
+            if PlayerVM.mode != 0: Stat { label: "accuracy"; value: PlayerVM.accuracy; tone: Theme.ok; }
+            if PlayerVM.mode != 0: Stat { label: PlayerVM.mode == 1 ? "chords" : "notes"; value: PlayerVM.steps; }
+            if PlayerVM.mode != 0: Stat { label: "streak"; value: PlayerVM.streak; tone: Theme.warn; }
+        }
+        Roll { }
+        Keyboard { }
+    }
+}

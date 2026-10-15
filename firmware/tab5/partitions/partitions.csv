@@ -1,0 +1,6 @@
+# piano-tab5 — 16 MB flash. The embedded CJK glyph set makes the app large;
+# songs live on the microSD card, so no data partition is needed.
+# Name,   Type, SubType, Offset,  Size
+nvs,      data, nvs,     0x9000,  24K
+phy_init, data, phy,     0xf000,  4K
+factory,  app,  factory, 0x10000, 12M

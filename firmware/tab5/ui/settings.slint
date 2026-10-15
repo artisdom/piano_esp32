@@ -1,0 +1,132 @@
+import { Theme } from "theme.slint";
+import { Icon } from "icons.slint";
+import { Button, Card, Toggle, Slider, Segmented } from "widgets.slint";
+import { SettingsVM, AppVM } from "state.slint";
+
+component Heading inherits Text {
+    font-size: Theme.fs-lg;
+    font-weight: 700;
+    color: Theme.text;
+}
+
+component Info inherits HorizontalLayout {
+    in property <string> label;
+    in property <string> value;
+    spacing: 12px;
+    Text { text: root.label; color: Theme.dim; font-size: Theme.fs-sm; min-width: 130px; }
+    Text { text: root.value; color: Theme.text; font-size: Theme.fs-sm; overflow: elide; horizontal-stretch: 1; }
+}
+
+export component SettingsPage inherits Rectangle {
+    HorizontalLayout {
+        padding: 16px;
+        spacing: 16px;
+        Card {
+            VerticalLayout {
+                padding: 24px;
+                spacing: 6px;
+                Heading { text: "Learning"; }
+                Toggle {
+                    text: "Piano plays the other hand";
+                    hint: "In Learn and Follow, the hand you are not practising is played for you.";
+                    checked <=> SettingsVM.accompany;
+                    toggled(v) => { SettingsVM.set-accompany(v); }
+                }
+                Toggle {
+                    text: "Easy mode";
+                    hint: "Learn: any key moves on to the next chord — for little fingers.";
+                    checked <=> SettingsVM.easy;
+                    toggled(v) => { SettingsVM.set-easy(v); }
+                }
+                Toggle {
+                    text: "Hint LED off when pressed";
+                    hint: "Learn: a key's red light goes out as soon as you play it.";
+                    checked <=> SettingsVM.led-off-on-hit;
+                    toggled(v) => { SettingsVM.set-led-off-on-hit(v); }
+                }
+                Rectangle { height: 8px; }
+                HorizontalLayout {
+                    Text { text: "Follow: light keys ahead"; color: Theme.text; font-size: Theme.fs; horizontal-stretch: 1; }
+                    Text { text: round(SettingsVM.lead) + " ms"; color: Theme.dim; font-size: Theme.fs; }
+                }
+                Slider {
+                    minimum: 200;
+                    maximum: 1500;
+                    value <=> SettingsVM.lead;
+                    released(v) => { SettingsVM.set-lead(v); }
+                }
+                Rectangle { vertical-stretch: 1; }
+            }
+        }
+        VerticalLayout {
+            spacing: 16px;
+            width: 520px;
+            Card {
+                VerticalLayout {
+                    padding: 24px;
+                    spacing: 12px;
+                    Heading { text: "Piano"; }
+                    HorizontalLayout {
+                        spacing: 12px;
+                        Text { text: "Connect via"; color: Theme.text; font-size: Theme.fs; vertical-alignment: center; horizontal-stretch: 1; }
+                        Segmented {
+                            width: 300px;
+                            options: ["USB cable", "Bluetooth"];
+                            icons: ["usb", "bluetooth"];
+                            selected: SettingsVM.transport;
+                            changed(i) => { SettingsVM.set-transport(i); }
+                        }
+                    }
+                    Text {
+                        text: "USB: piano's USB-C to the Tab5's USB-A port. Bluetooth: pairs with GZUT-MIDI. Switching restarts the Tab5.";
+                        color: Theme.dim;
+                        font-size: Theme.fs-xs;
+                        wrap: word-wrap;
+                    }
+                    Info { label: "Status"; value: AppVM.device; }
+                    Info { label: "Panel"; value: SettingsVM.panel; }
+                    HorizontalLayout {
+                        spacing: 12px;
+                        Button {
+                            text: "Light all keys";
+                            icon: "bulb";
+                            enabled: AppVM.connected;
+                            clicked => { SettingsVM.led-test(); }
+                        }
+                        Button {
+                            text: "All off";
+                            icon: "stop";
+                            enabled: AppVM.connected;
+                            clicked => { SettingsVM.all-off(); }
+                        }
+                    }
+                }
+            }
+            Card {
+                VerticalLayout {
+                    padding: 24px;
+                    spacing: 12px;
+                    Heading { text: "Display & library"; }
+                    HorizontalLayout {
+                        Text { text: "Brightness"; color: Theme.text; font-size: Theme.fs; horizontal-stretch: 1; }
+                        Text { text: round(SettingsVM.brightness) + "%"; color: Theme.dim; font-size: Theme.fs; }
+                    }
+                    Slider {
+                        minimum: 10;
+                        maximum: 100;
+                        value <=> SettingsVM.brightness;
+                        changed(v) => { SettingsVM.set-brightness(v); }
+                    }
+                    Info { label: "microSD"; value: AppVM.sd-status; }
+                    Info { label: "Songs folder"; value: SettingsVM.library-root; }
+                    Info { label: "Firmware"; value: AppVM.version; }
+                    Button {
+                        text: "Rescan SD card";
+                        icon: "sd";
+                        clicked => { SettingsVM.rescan(); }
+                    }
+                }
+            }
+        }
+    }
+}

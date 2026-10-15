@@ -1,0 +1,50 @@
+# Piano play & learn firmware for the M5Stack Tab5 (ESP32-P4), driving the
+# GZUT 88-key LED piano over the Tab5's USB-A host port.
+[workspace]
+
+[package]
+name = "piano-tab5"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[[bin]]
+name = "piano-tab5"
+harness = false # no test harness on the espidf target; logic is tested in piano-core
+
+[profile.release]
+opt-level = "s"
+lto = "thin"
+
+[profile.dev]
+debug = true
+opt-level = "z"
+
+[dependencies]
+log = "0.4"
+anyhow = "1"
+esp-idf-svc = "0.52" # esp-idf-hal 0.46 / esp-idf-sys 0.37: first with ESP32-P4 + IDF 5.5
+piano-core = { path = "../piano-core" }
+# Software renderer only: we provide the platform (DPI framebuffer + touch).
+# No `std` feature (its font stack needs mmap); glyphs are pre-embedded by
+# slint-build. The UI is only touched from the UI thread.
+slint = { version = "=1.18.1", default-features = false, features = [
+    "compat-1-2",
+    "renderer-software",
+    "unsafe-single-threaded",
+    "libm",
+] }
+
+[build-dependencies]
+embuild = "0.33.3"
+# One signed-distance-field raster per glyph instead of one per size: the
+# ~4300-glyph CJK set would not fit otherwise.
+slint-build = { version = "=1.18.1", features = ["sdf-fonts"] }
+
+# Board support for display/touch/IO expanders/SD/USB host without LVGL,
+# vendored from herdline (fixes the ST7123 sleep-out delays; probes ST7123 vs
+# ILI9881C+GT911 at run time). Exposed to Rust as esp_idf_svc::sys::bsp.
+[[package.metadata.esp-idf-sys.extra_components]]
+component_dirs = ["components/m5stack_tab5_noglib"]
+bindings_header = "src/bindings.h"
+bindings_module = "bsp"
