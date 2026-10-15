@@ -100,6 +100,17 @@ export global LibraryVM {
     callback open-result(int);
 }
 
+// Sheet music primitives (src/ui.rs converts piano_core::notation):
+// rectangles, music-font glyphs, dots, flags, ties and time-signature
+// digits. Positions are in the sheet's frame; `ms` >= 0 marks a note head
+// (its note's start), `staff` 0 treble / 1 bass.
+export struct SheetRect { x: length, y: length, w: length, h: length }
+export struct SheetGlyph { x: length, y: length, w: length, h: length, kind: int, ms: int, staff: int }
+export struct SheetDot { x: length, y: length }
+export struct SheetFlag { x: length, y: length, up: bool }
+export struct SheetTie { x: length, y: length, w: length, up: bool }
+export struct SheetDigits { x: length, y: length, text: string }
+
 export global PlayerVM {
     in property <string> title: "No song loaded";
     in property <string> subtitle: "Pick a song in the Library";
@@ -118,6 +129,26 @@ export global PlayerVM {
     in property <string> wrong: "0";
     in property <[KeyView]> keys;
     in property <[RollNote]> roll;
+
+    // Sheet music view (instead of the note roll + keyboard).
+    in-out property <bool> sheet;
+    callback set-sheet(bool);
+    in property <length> sheet-space: 10px;
+    in property <[SheetRect]> sheet-rects;
+    in property <[SheetGlyph]> sheet-glyphs;
+    in property <[SheetDot]> sheet-dots;
+    in property <[SheetFlag]> sheet-flags;
+    in property <[SheetTie]> sheet-ties;
+    in property <[SheetDigits]> sheet-digits;
+    // Heads whose note starts within 40 ms of this song time are "now".
+    in property <int> sheet-now: -1000;
+    // Staves whose "now" heads are highlighted: bit 0 treble, bit 1 bass.
+    in property <int> sheet-staves: 3;
+    in property <length> cursor-x;
+    in property <length> cursor-y;
+    in property <length> cursor-h;
+    in property <bool> cursor-visible;
+    in property <string> sheet-message;
     in property <length> now-line;   // y of the "now" line inside the roll
     // Practice loop: positions as fractions of the song, -1 = unset.
     in property <float> loop-a: -1;

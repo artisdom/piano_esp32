@@ -14,6 +14,10 @@ use slint::{ComponentHandle, ModelRc, PhysicalSize, Rgb8Pixel, SharedString, Vec
 
 slint::include_modules!();
 
+// The device's sheet-music view logic (needs only the generated types).
+#[path = "../../../src/ui/sheet.rs"]
+mod sheet;
+
 /// (board, physical width, height, UI scale) — as in src/board/<board>.
 const BOARDS: &[(&str, u32, u32, f32)] = &[("tab5", 1280, 720, 1.0), ("korvo", 800, 480, 0.625)];
 
@@ -47,6 +51,20 @@ fn render(window: &MinimalSoftwareWindow, name: &str) {
     let data: Vec<u8> = px.iter().flat_map(|p| [p.r, p.g, p.b]).collect();
     enc.write_header().unwrap().write_image_data(&data).unwrap();
     println!("{path}");
+}
+
+fn find(dir: &std::path::Path, needle: &str) -> Option<std::path::PathBuf> {
+    for e in std::fs::read_dir(dir).ok()?.flatten() {
+        let p = e.path();
+        if p.is_dir() {
+            if let Some(f) = find(&p, needle) {
+                return Some(f);
+            }
+        } else if p.file_name()?.to_string_lossy().contains(needle) {
+            return Some(p);
+        }
+    }
+    None
 }
 
 fn is_black(k: u8) -> bool {
@@ -189,6 +207,24 @@ fn pages(window: &MinimalSoftwareWindow, ui: &AppWindow) {
     p.set_streak("7".into());
     app.set_page(1);
     render(window, "play");
+
+    // Sheet music of real songs (if the library is there), mid-song.
+    let lib_dir = std::env::var("PIANO_MIDI_DIR")
+        .unwrap_or_else(|_| format!("{}/w/piano/midi-piano/assets/midi", std::env::var("HOME").unwrap()));
+    let mut sh = sheet::Sheet::new(&p);
+    p.set_sheet(true);
+    for (n, (needle, frac)) in [("卖报歌", 0.3f32), ("致爱丽丝", 0.0), ("小星星", 0.0), ("卡农", 0.2), ("天空之城", 0.4)].iter().enumerate() {
+        let Some(path) = find(std::path::Path::new(&lib_dir), needle) else { continue };
+        let Ok(song) = piano_core::song::Song::parse(&std::fs::read(&path).unwrap()) else { continue };
+        let song = std::sync::Arc::new(song);
+        let ms = (song.duration_ms as f32 * frac) as u32;
+        let now = song.onset_at_or_before(ms);
+        sh.update(&p, Some(&song), ms, Some(now), 3);
+        p.set_title(path.file_stem().unwrap().to_string_lossy().to_string().into());
+        p.set_subtitle(format!("key {} · {:?}", song.meter.key, song.meter.time_sigs.first()).into());
+        render(window, &format!("sheet-{n}"));
+    }
+    p.set_sheet(false);
 
     let s = ui.global::<SettingsVM>();
     s.set_library_root("/sdcard/midi".into());

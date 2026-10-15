@@ -3,7 +3,7 @@
 //! `piano_core::songpack` and tools/songs.sh). Pack songs are addressed by
 //! virtual paths `/pack/<index>`, so the player handles both alike.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::OnceLock;
 
 use piano_core::songpack::Pack;
@@ -74,8 +74,8 @@ pub fn open_pack() -> Result<&'static Pack<'static>, String> {
 }
 
 #[cfg(ui_mini)]
-pub fn pack_path(index: u32) -> PathBuf {
-    PathBuf::from(format!("{PACK_PREFIX}{index}"))
+pub fn pack_path(index: u32) -> std::path::PathBuf {
+    std::path::PathBuf::from(format!("{PACK_PREFIX}{index}"))
 }
 
 /// Pack index of a `/pack/<index>` path.

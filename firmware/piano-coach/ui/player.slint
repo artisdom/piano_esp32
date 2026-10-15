@@ -60,37 +60,9 @@ component Stat inherits Rectangle {
     }
 }
 
-component Roll inherits Rectangle {
-    width: Geometry.keys-width;
-    height: Geometry.roll-height;
-    border-radius: Theme.radius;
-    background: @linear-gradient(180deg, #11151b 0%, #161b23 100%);
-    clip: true;
-    // Octave guide lines at each C.
-    for k in PlayerVM.keys: Rectangle {
-        visible: k.label != "";
-        x: k.x;
-        width: 1px;
-        background: #ffffff10;
-    }
-    for n in PlayerVM.roll: Rectangle {
-        x: n.x;
-        y: n.y;
-        width: n.w;
-        height: n.h;
-        border-radius: 4px;
-        background: n.kind == 0 ? Theme.right-hand
-            : n.kind == 1 ? Theme.left-hand
-            : n.kind == 2 ? Theme.led
-            : #3a4350;
-        opacity: n.kind == 3 ? 0.6 : 1.0;
-    }
-    // The "now" line where notes meet the keys.
-    Rectangle {
-        y: PlayerVM.now-line;
-        height: 3px;
-        background: Theme.led.with-alpha(0.7);
-    }
+// Score / loop chip (top-right) and the Learn prompt (top-centre), over
+// the roll or the sheet.
+component Overlay inherits Rectangle {
     // Score + loop counter, top-right.
     if PlayerVM.loaded && (PlayerVM.mode != 0 || PlayerVM.loop-text != ""): Rectangle {
         x: parent.width - self.width - 12px;
@@ -125,6 +97,40 @@ component Roll inherits Rectangle {
             horizontal-alignment: center;
         }
     }
+}
+
+component Roll inherits Rectangle {
+    width: Geometry.keys-width;
+    height: Geometry.roll-height;
+    border-radius: Theme.radius;
+    background: @linear-gradient(180deg, #11151b 0%, #161b23 100%);
+    clip: true;
+    // Octave guide lines at each C.
+    for k in PlayerVM.keys: Rectangle {
+        visible: k.label != "";
+        x: k.x;
+        width: 1px;
+        background: #ffffff10;
+    }
+    for n in PlayerVM.roll: Rectangle {
+        x: n.x;
+        y: n.y;
+        width: n.w;
+        height: n.h;
+        border-radius: 4px;
+        background: n.kind == 0 ? Theme.right-hand
+            : n.kind == 1 ? Theme.left-hand
+            : n.kind == 2 ? Theme.led
+            : #3a4350;
+        opacity: n.kind == 3 ? 0.6 : 1.0;
+    }
+    // The "now" line where notes meet the keys.
+    Rectangle {
+        y: PlayerVM.now-line;
+        height: 3px;
+        background: Theme.led.with-alpha(0.7);
+    }
+    Overlay { }
     if !PlayerVM.loaded: Text {
         text: "Pick a song in the Library, then press Learn, Follow or Listen.";
         color: Theme.dim;
@@ -132,6 +138,93 @@ component Roll inherits Rectangle {
         horizontal-alignment: center;
         vertical-alignment: center;
     }
+}
+
+// Sheet music: two systems of a grand staff on paper, the play cursor and
+// the notes to play now in LED red. Laid out in Rust (piano_core::notation).
+component Sheet inherits Rectangle {
+    property <color> ink: #1d2128;
+    property <length> sp: PlayerVM.sheet-space;
+    width: Geometry.keys-width;
+    border-radius: Theme.radius;
+    background: #f6f3ec;
+    clip: true;
+    for r in PlayerVM.sheet-rects: Rectangle {
+        x: r.x;
+        y: r.y;
+        width: r.w;
+        height: r.h;
+        background: ink;
+    }
+    // Cursor behind the notes.
+    if PlayerVM.cursor-visible: Rectangle {
+        x: PlayerVM.cursor-x - 2px;
+        y: PlayerVM.cursor-y;
+        width: 4px;
+        height: PlayerVM.cursor-h;
+        border-radius: 2px;
+        background: #4da3ff90;
+    }
+    // Clefs, accidentals, heads and rests: Noto Music glyphs exported as
+    // SVGs (tools/make_music_glyphs.py), in piano_core::notation::Glyph order.
+    for g in PlayerVM.sheet-glyphs: Image {
+        x: g.x;
+        y: g.y;
+        width: g.w;
+        height: g.h;
+        image-fit: fill;
+        source: g.kind == 0 ? @image-url("sheet/gclef.svg") : g.kind == 1 ? @image-url("sheet/fclef.svg") : g.kind == 2 ? @image-url("sheet/sharp.svg") : g.kind == 3 ? @image-url("sheet/flat.svg") : g.kind == 4 ? @image-url("sheet/natural.svg") : g.kind == 5 ? @image-url("sheet/head-black.svg") : g.kind == 6 ? @image-url("sheet/head-half.svg") : g.kind == 7 ? @image-url("sheet/head-whole.svg") : g.kind == 8 ? @image-url("sheet/rest-whole.svg") : g.kind == 9 ? @image-url("sheet/rest-half.svg") : g.kind == 10 ? @image-url("sheet/rest-quarter.svg") : g.kind == 11 ? @image-url("sheet/rest-8.svg") : @image-url("sheet/rest-16.svg");
+        colorize: g.ms >= 0 && abs(g.ms - PlayerVM.sheet-now) <= 40
+            && (g.staff == 0 ? mod(PlayerVM.sheet-staves, 2) == 1 : PlayerVM.sheet-staves >= 2)
+            ? Theme.led : ink;
+    }
+    for d in PlayerVM.sheet-dots: Rectangle {
+        x: d.x - 0.22 * sp;
+        y: d.y - 0.22 * sp;
+        width: 0.44 * sp;
+        height: 0.44 * sp;
+        border-radius: 0.22 * sp;
+        background: ink;
+    }
+    // Flags and ties are SVG shapes (rasterised at build time), tinted.
+    for f in PlayerVM.sheet-flags: Image {
+        x: f.x;
+        y: f.up ? f.y : f.y - 3 * sp;
+        width: 1.1 * sp;
+        height: 3 * sp;
+        source: f.up ? @image-url("sheet/flag-up.svg") : @image-url("sheet/flag-down.svg");
+        image-fit: fill;
+        colorize: ink;
+    }
+    for t in PlayerVM.sheet-ties: Image {
+        x: t.x;
+        y: t.up ? t.y - 0.6 * sp : t.y;
+        width: t.w;
+        height: 0.6 * sp;
+        source: t.up ? @image-url("sheet/tie-up.svg") : @image-url("sheet/tie-down.svg");
+        image-fit: fill;
+        colorize: ink;
+    }
+    for d in PlayerVM.sheet-digits: Text {
+        x: d.x - 1.5 * sp;
+        y: d.y - 1.3 * sp;
+        width: 3 * sp;
+        height: 2.6 * sp;
+        text: d.text;
+        font-size: 2.6 * sp;
+        font-weight: 900;
+        color: ink;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    if PlayerVM.sheet-message != "": Text {
+        text: PlayerVM.sheet-message;
+        color: #6b7280;
+        font-size: Theme.fs;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    Overlay { }
 }
 
 export component PlayerPage inherits Rectangle {
@@ -172,6 +265,13 @@ export component PlayerPage inherits Rectangle {
                 options: ["Both", "Right", "Left"];
                 selected: PlayerVM.hands;
                 changed(i) => { PlayerVM.set-hands(i); }
+            }
+            Segmented {
+                y: (parent.height - self.height) / 2;
+                options: ["Keys", "Sheet"];
+                icons: ["library", "note"];
+                selected: PlayerVM.sheet ? 1 : 0;
+                changed(i) => { PlayerVM.set-sheet(i == 1); }
             }
         }
         // Transport, progress, tempo, stats
@@ -278,7 +378,10 @@ export component PlayerPage inherits Rectangle {
             }
             Button { icon: "plus"; width: 52px; clicked => { PlayerVM.tempo-step(10); } }
         }
-        Roll { }
-        Keyboard { }
+        if !PlayerVM.sheet: Roll { }
+        if !PlayerVM.sheet: Keyboard { }
+        if PlayerVM.sheet: Sheet {
+            height: Geometry.roll-height + Geometry.keys-height + 10px;
+        }
     }
 }

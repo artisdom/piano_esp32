@@ -26,6 +26,8 @@ use crate::prefs;
 use crate::globe::Globe;
 use crate::store::Store;
 
+mod sheet;
+
 thread_local! {
     /// Last panel origin reported by Slint (the globe may be built later).
     static GLOBE_ORIGIN: Cell<Option<(f32, f32)>> = const { Cell::new(None) };
@@ -859,6 +861,21 @@ pub fn run(ctx: Ctx) -> anyhow::Result<()> {
 
     let keys_model: Rc<VecModel<KeyView>> = Rc::new(VecModel::default());
     ui.global::<PlayerVM>().set_keys(keys_model.clone().into());
+    // Sheet music (Play page "Sheet" view); the toggle forces a refresh.
+    let mut sheet_view = sheet::Sheet::new(&ui.global::<PlayerVM>());
+    let sheet_refresh = Rc::new(Cell::new(false));
+    {
+        let p = ui.global::<PlayerVM>();
+        p.set_sheet(prefs::get_bool("sheet", false));
+        let (w, r) = (ui.as_weak(), sheet_refresh.clone());
+        p.on_set_sheet(move |on| {
+            if let Some(ui) = w.upgrade() {
+                ui.global::<PlayerVM>().set_sheet(on);
+            }
+            prefs::set_bool("sheet", on);
+            r.set(true);
+        });
+    }
     let roll_model: Rc<VecModel<RollNote>> = Rc::new(VecModel::default());
     ui.global::<PlayerVM>().set_roll(roll_model.clone().into());
     ui.global::<PlayerVM>().set_now_line(NOW_LINE);
@@ -1028,6 +1045,9 @@ pub fn run(ctx: Ctx) -> anyhow::Result<()> {
         }
 
         // ---- player snapshot ----
+        if sheet_refresh.take() {
+            last_rev = u64::MAX;
+        }
         let snap = {
             let s = ctx.shared.lock().unwrap();
             if s.rev == last_rev {
@@ -1177,9 +1197,26 @@ pub fn run(ctx: Ctx) -> anyhow::Result<()> {
                 }
             }
 
-            // Falling notes.
+            // Sheet music: cursor, page turns, the notes to play now.
+            let sheet_on = p.get_sheet();
+            if sheet_on {
+                let learner = s.opts.mode != Mode::Listen;
+                let now = match (&s.step, s.state) {
+                    (_, State::Stopped) if s.pos_ms == 0 => None,
+                    (Some(st), _) if s.opts.mode == Mode::Learn => Some(st.ms),
+                    _ => s.song.as_ref().map(|song| song.onset_at_or_before(s.pos_ms)),
+                };
+                let staves = match (learner, s.opts.hands) {
+                    (true, piano_core::song::HandSel::Right) => 1,
+                    (true, piano_core::song::HandSel::Left) => 2,
+                    _ => 3,
+                };
+                sheet_view.update(&p, s.song.as_ref(), s.pos_ms, now, staves);
+            }
+
+            // Falling notes (not while the sheet replaces them).
             let mut rows: Vec<RollNote> = Vec::new();
-            if let Some(song) = &s.song {
+            if let Some(song) = s.song.as_ref().filter(|_| !sheet_on) {
                 let pos = s.pos_ms as f32;
                 let ppm = NOW_LINE / LOOKAHEAD_MS;
                 let first = song.notes.partition_point(|n| (n.start_ms as f32) < pos - 10_000.0);

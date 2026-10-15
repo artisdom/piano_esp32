@@ -567,7 +567,6 @@ pub fn run(ctx: Ctx) -> anyhow::Result<()> {
     let mut last_rev = u64::MAX;
     let mut last_state = State::Stopped;
     let mut toast_until: Option<Instant> = None;
-    let mut result = String::new();
     let mut last_conn = None;
     let mut heap_log = Instant::now();
     let rows = Rc::new(VecModel::<Row>::from(vec![Row::default(), Row::default(), Row::default()]));
@@ -761,17 +760,17 @@ pub fn run(ctx: Ctx) -> anyhow::Result<()> {
                 );
                 if snap.state == State::Finished && last_state != State::Finished {
                     let acc = st.accuracy().min(100) as u8;
-                    if o.mode == Mode::Listen {
+                    let result: String = if o.mode == Mode::Listen {
                         vm.set_stars(3);
-                        result = "Finished".into();
+                        "Finished".into()
                     } else {
                         let new_best = match (app.pack, app.playing) {
                             (Some(p), Some(s)) => record(p, s, o.mode, acc),
                             _ => false,
                         };
                         vm.set_stars(stars(acc) as i32);
-                        result = if new_best { format!("{acc}%  ·  New best!") } else { format!("{acc}%") };
-                    }
+                        if new_best { format!("{acc}%  ·  New best!") } else { format!("{acc}%") }
+                    };
                     vm.set_result(result.as_str().into());
                 }
                 last_state = snap.state;

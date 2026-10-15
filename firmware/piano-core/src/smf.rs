@@ -42,6 +42,10 @@ pub enum Kind {
     Program { ch: u8, program: u8 },
     /// µs per quarter note.
     Tempo(u32),
+    /// Time signature `num`/`den` (den a power of two).
+    TimeSig { num: u8, den: u8 },
+    /// Key signature: sharps (> 0) or flats (< 0); `minor` per the file.
+    KeySig { sf: i8, minor: bool },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -211,6 +215,14 @@ fn parse_track(chunk: &[u8]) -> Track {
                                 });
                             }
                         }
+                        0x58 if d.len() >= 2 && d[0] > 0 && d[1] <= 6 => t.events.push(Event {
+                            tick,
+                            kind: Kind::TimeSig { num: d[0], den: 1 << d[1] },
+                        }),
+                        0x59 if d.len() >= 2 && (-7..=7).contains(&(d[0] as i8)) => t.events.push(Event {
+                            tick,
+                            kind: Kind::KeySig { sf: d[0] as i8, minor: d[1] == 1 },
+                        }),
                         // Only the first name counts (kept on the track, not
                         // as an event: events stay small on the device).
                         0x03 if t.name.is_empty() => t.name = decode_name(d),
@@ -313,6 +325,20 @@ impl TempoMap {
         let idx = self.segments.partition_point(|s| s.0 <= tick).saturating_sub(1);
         let (t0, ms0, us) = self.segments[idx];
         ms0 + Self::span_ms(self.division, tick - t0, us)
+    }
+
+    /// Tempo segments as (song ms, quarter notes, ms per quarter) — the
+    /// musical time of a millisecond (see `song::Meter`). Files timed in
+    /// SMPTE frames have no beats: they get a nominal 120 bpm.
+    pub fn quarter_segments(&self) -> Vec<(f64, f64, f64)> {
+        match self.division {
+            Division::Ppq(ppq) => self
+                .segments
+                .iter()
+                .map(|&(tick, ms, us)| (ms, tick as f64 / ppq as f64, us as f64 / 1000.0))
+                .collect(),
+            Division::Smpte { .. } => vec![(0.0, 0.0, 500.0)],
+        }
     }
 
     /// Initial tempo in beats per minute (for display).

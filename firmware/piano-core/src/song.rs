@@ -62,6 +62,62 @@ pub enum SplitRule {
     MiddleC,
 }
 
+/// Musical time: where the beats and bars are (for sheet music).
+#[derive(Debug, Clone, Default)]
+pub struct Meter {
+    /// Tempo segments: (song ms, quarter notes, ms per quarter), by ms.
+    pub tempo: Vec<(f64, f64, f64)>,
+    /// Time signatures: (quarter-note position, numerator, denominator).
+    pub time_sigs: Vec<(f64, u8, u8)>,
+    /// Key signature at the start: sharps (> 0) or flats (< 0) — from the
+    /// file, or estimated from the notes when the file has none.
+    pub key: i8,
+    /// The file declared the key signature.
+    pub key_declared: bool,
+}
+
+/// The key signature (−6 flats … +6 sharps) whose major scale leaves the
+/// fewest notes needing an accidental; ties go to fewer sharps/flats.
+pub fn estimate_key(notes: &[Note]) -> i8 {
+    let mut hist = [0u32; 12];
+    for n in notes {
+        hist[n.key as usize % 12] += 1;
+    }
+    let mut best = (u32::MAX, 0i8);
+    for k in -6i8..=6 {
+        // Tonic of the major key with k sharps: C + 7k semitones.
+        let tonic = (7 * k as i32).rem_euclid(12) as usize;
+        let outside: u32 = (0..12)
+            .filter(|pc| ![0, 2, 4, 5, 7, 9, 11].contains(&((pc + 12 - tonic) % 12)))
+            .map(|pc| hist[pc])
+            .sum();
+        if (outside, k.unsigned_abs()) < (best.0, best.1.unsigned_abs()) {
+            best = (outside, k);
+        }
+    }
+    best.1
+}
+
+impl Meter {
+    /// Quarter notes elapsed at song time `ms`.
+    pub fn q_at(&self, ms: f64) -> f64 {
+        let i = self.tempo.partition_point(|s| s.0 <= ms).saturating_sub(1);
+        match self.tempo.get(i) {
+            Some(&(ms0, q0, mpq)) => q0 + (ms - ms0) / mpq,
+            None => ms / 500.0,
+        }
+    }
+
+    /// Song ms at quarter-note position `q`.
+    pub fn ms_at(&self, q: f64) -> f64 {
+        let i = self.tempo.partition_point(|s| s.1 <= q).saturating_sub(1);
+        match self.tempo.get(i) {
+            Some(&(ms0, q0, mpq)) => ms0 + (q - q0) * mpq,
+            None => q * 500.0,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Song {
     /// Sorted by `start_ms`, then key.
@@ -71,6 +127,7 @@ pub struct Song {
     pub bpm: f64,
     pub note_tracks: usize,
     pub split: SplitRule,
+    pub meter: Meter,
 }
 
 /// One learning step: the keys to press together at `ms`.
@@ -231,6 +288,37 @@ impl Song {
         pedals.sort_by_key(|p| p.ms);
 
         let duration_ms = notes.iter().map(|n| n.end_ms).max().unwrap_or(0);
+        let mut time_sigs: Vec<(f64, u8, u8)> = Vec::new();
+        let mut key = None;
+        let ppq = match smf.division {
+            crate::smf::Division::Ppq(p) => Some(p as f64),
+            _ => None,
+        };
+        let mut sigs: Vec<(u64, u8, u8)> = Vec::new();
+        for e in smf.tracks.iter().flat_map(|t| t.events.iter()) {
+            match e.kind {
+                Kind::TimeSig { num, den } => sigs.push((e.tick, num, den)),
+                Kind::KeySig { sf, .. } if key.is_none() && e.tick == 0 => key = Some(sf),
+                _ => {}
+            }
+        }
+        sigs.sort_by_key(|s| s.0);
+        if let Some(ppq) = ppq {
+            for (tick, num, den) in sigs {
+                let q = tick as f64 / ppq;
+                match time_sigs.last_mut() {
+                    Some(last) if (last.0 - q).abs() < 1e-6 => *last = (q, num, den),
+                    Some(last) if last.1 == num && last.2 == den => {}
+                    _ => time_sigs.push((q, num, den)),
+                }
+            }
+        }
+        let meter = Meter {
+            tempo: tempo.quarter_segments(),
+            time_sigs,
+            key: key.unwrap_or_else(|| estimate_key(&notes)),
+            key_declared: key.is_some(),
+        };
         Song {
             notes,
             pedals,
@@ -238,6 +326,7 @@ impl Song {
             bpm: tempo.initial_bpm(),
             note_tracks: track_ids.len(),
             split,
+            meter,
         }
     }
 

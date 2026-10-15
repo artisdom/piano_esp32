@@ -156,7 +156,7 @@ fn run(
                         e.stop(&mut buf);
                     }
                     // Free the old song before parsing the next (small RAM).
-                    engine = None;
+                    drop(engine.take());
                     set_loaded(&sh, None, None, None);
                     match crate::songs::read(&path)
                         .and_then(|b| Song::parse(&b).map_err(|e| e.to_string()))

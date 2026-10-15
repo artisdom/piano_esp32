@@ -62,6 +62,13 @@ Sources: `firmware/piano-coach` (device crate) and `firmware/piano-core`
    violet left hand, red = what to play now); the on-screen keyboard
    mirrors the piano's LEDs (red), your key presses (blue) and wrong
    notes (amber).
+   **Keys / Sheet** (right of the hands switch, remembered) swaps the
+   falling notes and keyboard for **sheet music**: a grand staff (right
+   hand on the treble staff, left hand on the bass staff) with clefs, key
+   and time signatures, beamed eighths/sixteenths, rests, ties and
+   accidentals, two lines at a time. A blue cursor follows the music, the
+   notes to play now turn red (the hand(s) you practise), and the page
+   turns when the cursor reaches the lower line.
 
 | Mode | What happens |
 |---|---|
@@ -318,6 +325,27 @@ piano-core: smf · song · engine · usbmidi · blemidi · library · search ·
   dots from a cached background, then stamps anti-aliased dot sprites with
   integer blending; Slint is made to repaint fully when the globe is hidden
   or moves, so no stale dots survive. ~10 fps while spinning.
+* **Sheet music** (`piano-core/src/notation.rs`, `ui/sheet.rs`): the
+  parser keeps time and key signatures and the tempo map in quarter
+  notes (`song::Meter`; a file without a key signature gets the key whose
+  scale needs the fewest accidentals). Engraving snaps onsets and lengths
+  to 16ths (86 % of the library's onsets are on that grid), builds
+  measures from the time signatures (lengths snapped to the grid for
+  x/32 meters), one voice per staff (a chord lasts until the staff's next
+  onset), splits notes at barlines into tied values, fills gaps with
+  rests, spells black keys by the key signature with accidentals carried
+  through the measure, beams flagged notes per beat, spaces onsets by
+  duration and justifies each line of measures. A note far outside its
+  hand's staff (below G3 / above F4) moves to the other staff. Output is
+  primitives — rectangles, glyphs, dots, flags, ties, digits — that the
+  Play page draws from six Slint models, two systems at a time; heads
+  carry their note's start so Slint colours the current ones red. Every
+  library song engraves (host test), ≤ 62 ms on the PC; 卖报歌 takes
+  22 ms on the Tab5. The music symbols are Noto Music glyphs exported as
+  SVGs (`tools/make_music_glyphs.py`) rather than an imported font:
+  slint-build gives every font the UI's whole character set (filling gaps
+  from system fallback fonts), which re-embedded the ~4000 CJK glyphs
+  (+2 MB).
 * **Board classes** (`boards/<board>/board.env` `UI=` / `HAS=`, turned
   into `cfg(ui_full)` / `cfg(ui_mini)` / `cfg(has_usb|has_sd|has_speaker)`
   by build.rs): the full UI (`ui.rs`, `ui/app.slint`) on framebuffer
@@ -373,6 +401,7 @@ Tab5: ESP32-P4 rev v1.3, 16 MB flash, ST7123 panel, C6 ESP-Hosted
 | Tab5 speaker playback ("sounds OK", no stutter on a dense song; 18–32 % CPU) | ✔ |
 | Bookmarks listed under ★; Learn score recorded with "New best!"; survives reboot | ✔ |
 | Song globe: spin, tap-to-pick, category chips; no leftovers on screen switches | ✔ |
+| Sheet music: readable grand staff, red current notes in Learn, cursor, smooth page turns in Listen | ✔ |
 
 Korvo: ESP32-S31-Korvo-1 V1.1 (ESP32-S31-WROOM-3, 16 MB flash, 16 MB
 PSRAM), SUB3 800×480 RGB panel with a GT1158 touch controller, ESP-IDF
@@ -407,7 +436,12 @@ master v6.1-dev (4d59230ddff).
 * Search uses each hanzi's most common reading (pypinyin, without
   context), so a polyphonic character in a title may need its other
   reading's letter; characters outside the font's set have no pinyin.
-* The loop end is a time, not a bar line; there is no bar/beat grid yet.
+* The loop end is a time, not a bar line (the sheet knows the bars now;
+  snapping A/B to them would be a next step).
+* Sheet music is practical, not engraved: 16th grid (triplets show as
+  the nearest 16ths), one voice per staff, horizontal beams, no
+  dynamics/pedal/fingering, no 8va lines (very high or low notes get many
+  ledger lines). Small boards have no sheet view.
 * The speaker synth is a simple additive model, not sampled piano; it
   uses a piano voice for every track (no General MIDI instruments).
 * Globe: ~10 fps while spinning (PSRAM bandwidth is shared with the

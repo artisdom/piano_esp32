@@ -654,3 +654,103 @@ fn songpack_inflates_library() {
         assert_eq!(p.midi(i).unwrap(), src.midi, "{}", src.path);
     }
 }
+
+#[test]
+fn notation_engraves_a_melody() {
+    use piano_core::notation::{engrave, Glyph, Params, Shape};
+    // C4 D4 E4 F4 quarters, then G4 half + half rest: two 4/4 measures.
+    let mut ev = Vec::new();
+    for (i, k) in [60u8, 62, 64, 65].iter().enumerate() {
+        ev.push((if i == 0 { 0 } else { 0 }, vec![0x90, *k, 80]));
+        ev.push((480, vec![0x80, *k, 0]));
+    }
+    ev.push((0, vec![0x90, 67, 80]));
+    ev.push((960, vec![0x80, 67, 0]));
+    ev.push((960, vec![0xB0, 1, 0])); // pad the track to the bar's end
+    let song = Song::parse(&smf_bytes(&[("Right", ev)])).unwrap();
+    assert_eq!(song.meter.key, 0);
+    let score = engrave(&song, Params { width: 1200.0, space: 10.0 });
+    assert_eq!(score.systems.len(), 1);
+    let items = &score.systems[0].items;
+    let heads: Vec<_> = items
+        .iter()
+        .filter_map(|i| match i.shape {
+            Shape::Glyph { g: g @ (Glyph::HeadBlack | Glyph::HeadHalf), .. } => Some((g, i.note.unwrap().1)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        heads,
+        [(Glyph::HeadBlack, 60), (Glyph::HeadBlack, 62), (Glyph::HeadBlack, 64), (Glyph::HeadBlack, 65), (Glyph::HeadHalf, 67)]
+    );
+    // Middle C gets one ledger line; no accidentals in C major.
+    assert!(!items.iter().any(|i| matches!(i.shape, Shape::Glyph { g: Glyph::Sharp | Glyph::Flat | Glyph::Natural, .. })));
+    // The empty bass staff shows whole-measure rests; the treble a half rest.
+    let rests = |g| items.iter().filter(|i| matches!(i.shape, Shape::Glyph { g: x, .. } if x == g)).count();
+    assert_eq!(rests(Glyph::RestWhole), 2);
+    assert_eq!(rests(Glyph::RestHalf), 1);
+    // The cursor walks left to right.
+    let a = score.locate(0).unwrap();
+    let b = score.locate(1500).unwrap();
+    assert_eq!(a.0, 0);
+    assert!(b.1 > a.1);
+}
+
+#[test]
+fn key_estimate_prefers_fewest_accidentals() {
+    use piano_core::song::estimate_key;
+    let notes = |keys: &[u8]| -> Vec<piano_core::song::Note> {
+        keys.iter()
+            .enumerate()
+            .map(|(i, &key)| piano_core::song::Note {
+                start_ms: i as u32 * 100,
+                end_ms: i as u32 * 100 + 90,
+                key,
+                vel: 80,
+                track: 0,
+                hand: Hand::Right,
+            })
+            .collect()
+    };
+    // D major scale: two sharps.
+    assert_eq!(estimate_key(&notes(&[62, 64, 66, 67, 69, 71, 73, 74])), 2);
+    // F major: one flat.
+    assert_eq!(estimate_key(&notes(&[65, 67, 69, 70, 72, 74, 76, 77])), -1);
+    // C major.
+    assert_eq!(estimate_key(&notes(&[60, 62, 64, 65, 67, 69, 71, 72])), 0);
+}
+
+/// Every song of the library engraves; every note gets exactly one head.
+#[test]
+fn notation_engraves_library() {
+    use piano_core::notation::{engrave, Params};
+    let dir = std::env::var("PIANO_MIDI_DIR")
+        .unwrap_or_else(|_| format!("{}/w/piano/midi-piano/assets/midi", std::env::var("HOME").unwrap()));
+    let mut stack = vec![std::path::PathBuf::from(&dir)];
+    let (mut n, mut systems) = (0, 0);
+    while let Some(d) = stack.pop() {
+        let Ok(rd) = std::fs::read_dir(&d) else { continue };
+        for e in rd.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                stack.push(p);
+                continue;
+            }
+            let Ok(song) = Song::parse(&std::fs::read(&p).unwrap()) else { continue };
+            let score = engrave(&song, Params { width: 1212.0, space: 9.0 });
+            // Same key in the same 16th collapses into one head.
+            let q16 = |ms: u32| (song.meter.q_at(ms as f64) * 4.0).round() as i64;
+            let heads: std::collections::BTreeSet<(i64, u8)> = score
+                .systems
+                .iter()
+                .flat_map(|s| s.items.iter().filter_map(|i| i.note))
+                .map(|(ms, k)| (q16(ms), k))
+                .collect();
+            let want: std::collections::BTreeSet<(i64, u8)> = song.notes.iter().map(|n| (q16(n.start_ms), n.key)).collect();
+            assert_eq!(heads, want, "{}", p.display());
+            n += 1;
+            systems += score.systems.len();
+        }
+    }
+    eprintln!("engraved {n} songs into {systems} systems");
+}
