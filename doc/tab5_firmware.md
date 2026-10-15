@@ -51,8 +51,9 @@ down**) asks for confirmation, stops playback and switches every piano LED
 off, then pulses the Tab5's hardware power latch (POWEROFF_GEN, expander
 0x44 P4). On battery this cuts power. With USB-C power connected the latch
 cannot, so the firmware turns the screen, USB-A and C6 off and enters deep
-sleep. In both cases one press of the side power button starts it again
-(verified both ways round on the bench: shutdown, then power-button boot).
+sleep. In both cases one press of the side power button starts it again.
+Verified on the bench with USB-C connected (deep-sleep path); the
+battery-only path (latch cutting power) is not verified yet.
 
 Settings (all saved in NVS): Bluetooth/USB, accompaniment, easy mode (any
 key advances — for children), hint LED off when pressed, follow lead
