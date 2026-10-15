@@ -432,3 +432,155 @@ fn learn_loop_restarts_at_section_start() {
     assert_eq!(s.onset_at_or_before(499), 0);
     assert_eq!(s.onset_at_or_before(500), 500);
 }
+
+fn goertzel(x: &[i16], rate: f32, f: f32) -> f32 {
+    let w = 2.0 * std::f32::consts::PI * f / rate;
+    let c = 2.0 * w.cos();
+    let (mut s1, mut s2) = (0f32, 0f32);
+    for &v in x {
+        let s0 = v as f32 + c * s1 - s2;
+        s2 = s1;
+        s1 = s0;
+    }
+    s1 * s1 + s2 * s2 - c * s1 * s2
+}
+
+fn rms(x: &[i16]) -> f32 {
+    (x.iter().map(|&v| (v as f32).powi(2)).sum::<f32>() / x.len() as f32).sqrt()
+}
+
+#[test]
+fn synth_pitch_decay_damper_sustain() {
+    use piano_core::synth::{Synth, MAX_VOICES};
+    let rate = 32_000;
+    let mut s = Synth::new(rate);
+    s.note_on(69, 100); // A4
+    let mut buf = vec![0i16; rate as usize / 2];
+    s.render(&mut buf);
+    assert!(rms(&buf) > 1000.0, "audible");
+    assert!(goertzel(&buf, rate as f32, 440.0) > 20.0 * goertzel(&buf, rate as f32, 466.2));
+
+    // Held note decays on its own and frees the voice eventually.
+    let mut long = vec![0i16; rate as usize * 40];
+    s.render(&mut long);
+    assert_eq!(s.active_voices(), 0);
+
+    // Note off damps within ~1 s; with the pedal down it keeps ringing.
+    let mut a = Synth::new(rate);
+    a.note_on(60, 100);
+    a.note_off(60);
+    let mut b = Synth::new(rate);
+    b.set_sustain(true);
+    b.note_on(60, 100);
+    b.note_off(60);
+    let (mut ba, mut bb) = (vec![0i16; rate as usize], vec![0i16; rate as usize]);
+    a.render(&mut ba);
+    b.render(&mut bb);
+    let tail = rate as usize * 3 / 4..;
+    assert!(rms(&bb[tail.clone()]) > 10.0 * rms(&ba[tail.clone()]).max(1.0));
+    b.set_sustain(false);
+    b.render(&mut bb);
+    assert!(rms(&bb[tail]) < 50.0, "pedal up damps");
+
+    // Polyphony is bounded; CC 123 silences everything.
+    let mut p = Synth::new(rate);
+    for k in 30..90 {
+        p.midi(&[0x90, k, 90]);
+    }
+    assert_eq!(p.active_voices(), MAX_VOICES);
+    p.midi(&[0xb0, 123, 0]);
+    assert_eq!(p.active_voices(), 0);
+}
+
+#[test]
+fn synth_render_speed() {
+    // 24 voices for 2 s of audio; prints the real-time factor on the host.
+    let rate = 32_000;
+    let mut s = piano_core::synth::Synth::new(rate);
+    for k in 40..64 {
+        s.note_on(k, 100);
+    }
+    let mut buf = vec![0i16; rate as usize * 2];
+    let t = std::time::Instant::now();
+    s.render(&mut buf);
+    let el = t.elapsed().as_secs_f32();
+    eprintln!("synth: 24 voices x 2 s rendered in {:.1} ms ({:.0}x real time)", el * 1e3, 2.0 / el);
+}
+
+#[test]
+fn progress_bookmarks_scores_recent_roundtrip() {
+    use piano_core::progress::{stars, star_text, Progress, ScoreKind};
+    let mut p = Progress::default();
+    assert!(p.toggle_bookmark("a/卖报歌 - 聂耳.mid"));
+    p.record_play("a/卖报歌 - 聂耳.mid");
+    p.record_play("b/x.mid");
+    assert!(p.record_score("b/x.mid", ScoreKind::Learn, 70));
+    assert!(!p.record_score("b/x.mid", ScoreKind::Learn, 65), "not a new best");
+    assert!(p.record_score("b/x.mid", ScoreKind::Learn, 96));
+    assert!(p.record_score("b/x.mid", ScoreKind::Follow, 50));
+    let q = Progress::parse(&p.to_text());
+    assert_eq!(q.bookmarks(), vec!["a/卖报歌 - 聂耳.mid"]);
+    assert_eq!(q.recent(5), vec!["b/x.mid", "a/卖报歌 - 聂耳.mid"]);
+    let r = q.get("b/x.mid");
+    assert_eq!((r.best_learn, r.best_follow, r.plays), (Some(96), Some(50), 1));
+    // Un-bookmarking a song with no other data removes its line.
+    let mut q = q;
+    q.toggle_bookmark("c.mid");
+    q.toggle_bookmark("c.mid");
+    assert!(!q.to_text().contains("c.mid"));
+    // Play sequence continues after a reload.
+    q.record_play("c.mid");
+    assert_eq!(q.recent(1), vec!["c.mid"]);
+    assert_eq!((stars(59), stars(60), stars(80), stars(95)), (0, 1, 2, 3));
+    assert_eq!(star_text(Some(92)), "★★☆ 92%");
+}
+
+#[test]
+fn sphere_pick_face_and_render() {
+    use piano_core::sphere::Sphere;
+    let n = 500;
+    let mut s = Sphere::new((0..n).map(|i| (i * 5 / n) as u8).collect());
+    let (w, h) = (400, 300);
+    // Turning song 123 to the front puts it at the centre, where a tap picks it.
+    s.face(123);
+    let p = s.project(123, w, h);
+    assert!(p.z > 0.99, "faces the viewer");
+    assert!((p.x - 200.0).abs() < 1.0 && (p.y - 150.0).abs() < 1.0);
+    assert_eq!(s.pick(200.0, 150.0, w, h, 20.0), Some(123));
+    assert_eq!(s.pick(5.0, 5.0, w, h, 20.0), None, "corner is empty space");
+    // Drag spins it; inertia keeps it moving after release, then settles.
+    let yaw0 = s.yaw;
+    s.drag(50.0, 0.0, 16.0);
+    s.release();
+    assert!(s.yaw > yaw0);
+    assert!(s.step(16.0));
+    for _ in 0..400 {
+        s.step(16.0);
+    }
+    // Render draws the selected ring and coloured dots.
+    let mut buf = vec![0u8; w * h * 3];
+    let fav = vec![false; n];
+    s.face(10);
+    s.render(&mut buf, w, h, &fav, Some(10));
+    let centre = &buf[(150 * w + 200) * 3..][..3];
+    assert_ne!(centre, [0x16, 0x1b, 0x22], "something drawn at the centre");
+}
+
+#[test]
+fn sphere_tiled_drawing_matches_full() {
+    use piano_core::sphere::{RgbCanvas, Sphere};
+    let n = 800;
+    let mut s = Sphere::new((0..n).map(|i| (i * 3 / n) as u8).collect());
+    s.face(100);
+    let (w, h) = (300, 200);
+    let fav: Vec<bool> = (0..n).map(|i| i % 50 == 0).collect();
+    let mut full = vec![0u8; w * h * 3];
+    s.draw_dots(&mut RgbCanvas { buf: &mut full, w }, w, h, &fav, Some(100));
+    let mut tiled = vec![0u8; w * h * 3];
+    let order = s.depth_order(w, h);
+    for x0 in (0..w).step_by(32) {
+        s.draw_dots_in(&mut RgbCanvas { buf: &mut tiled, w }, w, h, &order, &fav, Some(100), x0..x0 + 32);
+    }
+    assert!(full.iter().any(|&b| b != 0));
+    assert_eq!(full, tiled);
+}

@@ -1,8 +1,14 @@
 import { Theme } from "theme.slint";
 import { Icon } from "icons.slint";
 import { Button, Card, WideScroll } from "widgets.slint";
-import { LibraryVM, LibEntry, SettingsVM } from "state.slint";
+import { LibraryVM, LibEntry, LegendItem, SettingsVM } from "state.slint";
 import { SearchKeyboard } from "keyboard.slint";
+
+// Size of the song-globe image rendered by src/ui.rs (must match there).
+export global SphereGeom {
+    out property <length> w: 760px;
+    out property <length> h: 456px;
+}
 
 component Row inherits Rectangle {
     in property <LibEntry> entry;
@@ -33,6 +39,7 @@ component Row inherits Rectangle {
         VerticalLayout {
             alignment: center;
             spacing: 2px;
+            horizontal-stretch: 1;
             Text {
                 text: root.entry.title;
                 font-size: Theme.fs;
@@ -46,6 +53,19 @@ component Row inherits Rectangle {
                 overflow: elide;
             }
         }
+        // Best-score stars and bookmark marker.
+        if root.entry.badge != "": Text {
+            text: root.entry.badge;
+            font-size: Theme.fs-sm;
+            color: Theme.warn;
+            vertical-alignment: center;
+        }
+        if root.entry.fav: Icon {
+            y: (parent.height - self.height) / 2;
+            name: "star";
+            size: 22px;
+            tint: #ffc82e;
+        }
         if root.entry.is-dir: Icon {
             y: (parent.height - self.height) / 2;
             name: "chevron";
@@ -57,6 +77,84 @@ component Row inherits Rectangle {
     }
 }
 
+// Icon-only tab used for the four library views.
+component ViewTab inherits Rectangle {
+    in property <string> icon;
+    in property <bool> active;
+    callback clicked;
+    width: 58px;
+    height: 52px;
+    border-radius: 26px;
+    background: active ? Theme.raised.brighter(0.15) : ta.pressed ? Theme.surface2 : transparent;
+    Icon {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        name: root.icon;
+        size: 24px;
+        tint: root.active ? Theme.text : Theme.dim;
+    }
+    ta := TouchArea { clicked => { root.clicked(); } }
+}
+
+component Globe inherits Rectangle {
+    VerticalLayout {
+        spacing: 8px;
+        Rectangle {
+            vertical-stretch: 1;
+            // Empty panel: src/globe.rs paints the spinning globe straight
+            // into the framebuffer here (faster than handing Slint a new image
+            // every frame). It needs the panel's position on screen.
+            area := Rectangle {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                width: SphereGeom.w;
+                height: SphereGeom.h;
+                // Report where we are. `init` can run before layout, so also
+                // report whenever the position changes once laid out.
+                init => { LibraryVM.sphere-origin(self.absolute-position.x, self.absolute-position.y); }
+                changed absolute-position => { LibraryVM.sphere-origin(self.absolute-position.x, self.absolute-position.y); }
+                TouchArea {
+                    pointer-event(e) => {
+                        if e.kind == PointerEventKind.down {
+                            LibraryVM.sphere-origin(area.absolute-position.x, area.absolute-position.y);
+                            LibraryVM.sphere-pointer(0, self.mouse-x, self.mouse-y);
+                        }
+                        if e.kind == PointerEventKind.up { LibraryVM.sphere-pointer(2, self.mouse-x, self.mouse-y); }
+                    }
+                    moved => { LibraryVM.sphere-pointer(1, self.mouse-x, self.mouse-y); }
+                }
+            }
+        }
+        // Category legend; tap to turn that band towards you.
+        HorizontalLayout {
+            height: 34px;
+            spacing: 8px;
+            alignment: center;
+            for item[i] in LibraryVM.legend: Rectangle {
+                width: lg.preferred-width + 36px;
+                border-radius: 17px;
+                background: lta.pressed ? Theme.raised : Theme.surface2;
+                Rectangle {
+                    x: 12px;
+                    y: (parent.height - self.height) / 2;
+                    width: 10px;
+                    height: 10px;
+                    border-radius: 5px;
+                    background: item.tint;
+                }
+                lg := Text {
+                    x: 28px;
+                    text: item.name;
+                    font-size: Theme.fs-xs;
+                    color: Theme.text;
+                    vertical-alignment: center;
+                }
+                lta := TouchArea { clicked => { LibraryVM.legend-tap(i); } }
+            }
+        }
+    }
+}
+
 export component LibraryPage inherits Rectangle {
     HorizontalLayout {
         padding: 16px;
@@ -65,12 +163,12 @@ export component LibraryPage inherits Rectangle {
             VerticalLayout {
                 padding: 12px;
                 spacing: 8px;
-                // Browse header: back, folder title + path, search button.
+                // Browse header: back, title + path, view tabs, search.
                 if !LibraryVM.searching: HorizontalLayout {
                     height: 60px;
-                    spacing: 12px;
+                    spacing: 8px;
                     padding-left: 4px;
-                    if LibraryVM.crumbs.length > 1: Button {
+                    if LibraryVM.view == 0 && LibraryVM.crumbs.length > 1: Button {
                         icon: "back";
                         width: 56px;
                         clicked => { LibraryVM.up(); }
@@ -78,7 +176,10 @@ export component LibraryPage inherits Rectangle {
                     VerticalLayout {
                         alignment: center;
                         Text {
-                            text: LibraryVM.crumbs.length > 0 ? LibraryVM.crumbs[LibraryVM.crumbs.length - 1] : "Library";
+                            text: LibraryVM.view == 1 ? "Bookmarks"
+                                : LibraryVM.view == 2 ? "Recently played"
+                                : LibraryVM.view == 3 ? "Song globe"
+                                : LibraryVM.crumbs.length > 0 ? LibraryVM.crumbs[LibraryVM.crumbs.length - 1] : "Library";
                             font-size: Theme.fs-lg;
                             font-weight: 700;
                             color: Theme.text;
@@ -91,9 +192,24 @@ export component LibraryPage inherits Rectangle {
                             overflow: elide;
                         }
                     }
+                    Rectangle {
+                        width: tabs.preferred-width + 8px;
+                        height: 60px;
+                        border-radius: 30px;
+                        background: Theme.surface2;
+                        tabs := HorizontalLayout {
+                            x: 4px;
+                            alignment: center;
+                            spacing: 2px;
+                            ViewTab { icon: "folder"; active: LibraryVM.view == 0; y: 4px; clicked => { LibraryVM.set-view(0); } }
+                            ViewTab { icon: "star"; active: LibraryVM.view == 1; y: 4px; clicked => { LibraryVM.set-view(1); } }
+                            ViewTab { icon: "history"; active: LibraryVM.view == 2; y: 4px; clicked => { LibraryVM.set-view(2); } }
+                            ViewTab { icon: "globe"; active: LibraryVM.view == 3; y: 4px; clicked => { LibraryVM.set-view(3); } }
+                        }
+                    }
                     Button {
                         icon: "search";
-                        text: "Search";
+                        width: 60px;
                         clicked => { LibraryVM.search-toggle(); }
                     }
                 }
@@ -135,7 +251,7 @@ export component LibraryPage inherits Rectangle {
                     }
                 }
                 Rectangle { height: 1px; background: Theme.border; }
-                if !LibraryVM.searching && LibraryVM.entries.length == 0: VerticalLayout {
+                if !LibraryVM.searching && LibraryVM.view != 3 && LibraryVM.entries.length == 0: VerticalLayout {
                     alignment: center;
                     spacing: 20px;
                     padding: 40px;
@@ -146,7 +262,7 @@ export component LibraryPage inherits Rectangle {
                         horizontal-alignment: center;
                         wrap: word-wrap;
                     }
-                    HorizontalLayout {
+                    if LibraryVM.view == 0: HorizontalLayout {
                         alignment: center;
                         Button {
                             text: "Rescan SD card";
@@ -155,13 +271,16 @@ export component LibraryPage inherits Rectangle {
                         }
                     }
                 }
-                if !LibraryVM.searching && LibraryVM.entries.length > 0: WideScroll {
+                if !LibraryVM.searching && LibraryVM.view != 3 && LibraryVM.entries.length > 0: WideScroll {
                     vertical-stretch: 1;
                     for e[i] in LibraryVM.entries: Row {
                         entry: e;
                         selected: i == LibraryVM.selected;
                         clicked => { LibraryVM.open(i); }
                     }
+                }
+                if !LibraryVM.searching && LibraryVM.view == 3: Globe {
+                    vertical-stretch: 1;
                 }
                 if LibraryVM.searching: WideScroll {
                     vertical-stretch: 1;
@@ -182,29 +301,48 @@ export component LibraryPage inherits Rectangle {
         }
         Card {
             // Narrower while searching so the keyboard gets more width.
-            width: LibraryVM.searching ? 340px : 420px;
+            width: LibraryVM.searching ? 340px : 400px;
             VerticalLayout {
                 padding: 24px;
-                spacing: 14px;
+                spacing: 12px;
                 // Album-art style tile (hidden while searching).
                 if !LibraryVM.searching: Rectangle {
-                    height: 170px;
+                    height: 150px;
                     border-radius: Theme.radius;
                     background: @linear-gradient(135deg, #3a1d2c 0%, #1d2a3a 100%);
                     Icon {
                         x: (parent.width - self.width) / 2;
                         y: (parent.height - self.height) / 2;
                         name: LibraryVM.sel-title == "" ? "library" : "note";
-                        size: 84px;
+                        size: 76px;
                         tint: LibraryVM.sel-title == "" ? Theme.faint : Theme.accent;
                     }
                 }
-                Text {
-                    text: LibraryVM.sel-title == "" ? "Choose a song" : LibraryVM.sel-title;
-                    font-size: Theme.fs-lg;
-                    font-weight: 700;
-                    color: Theme.text;
-                    wrap: word-wrap;
+                HorizontalLayout {
+                    spacing: 8px;
+                    Text {
+                        text: LibraryVM.sel-title == "" ? "Choose a song" : LibraryVM.sel-title;
+                        font-size: Theme.fs-lg;
+                        font-weight: 700;
+                        color: Theme.text;
+                        wrap: word-wrap;
+                        vertical-alignment: center;
+                    }
+                    // Bookmark toggle.
+                    if LibraryVM.sel-ready: Rectangle {
+                        width: 52px;
+                        height: 52px;
+                        border-radius: 26px;
+                        background: fta.pressed ? Theme.raised : Theme.surface2;
+                        Icon {
+                            x: (parent.width - self.width) / 2;
+                            y: (parent.height - self.height) / 2;
+                            name: LibraryVM.sel-fav ? "star" : "star-o";
+                            size: 26px;
+                            tint: LibraryVM.sel-fav ? #ffc82e : Theme.dim;
+                        }
+                        fta := TouchArea { clicked => { LibraryVM.toggle-fav(); } }
+                    }
                 }
                 Text {
                     text: LibraryVM.sel-subtitle;
@@ -216,6 +354,12 @@ export component LibraryPage inherits Rectangle {
                     text: LibraryVM.sel-error != "" ? LibraryVM.sel-error : LibraryVM.sel-info;
                     font-size: Theme.fs-sm;
                     color: LibraryVM.sel-error != "" ? Theme.warn : Theme.dim;
+                    wrap: word-wrap;
+                }
+                if LibraryVM.sel-scores != "": Text {
+                    text: LibraryVM.sel-scores;
+                    font-size: Theme.fs-sm;
+                    color: Theme.warn;
                     wrap: word-wrap;
                 }
                 Rectangle { vertical-stretch: 1; }

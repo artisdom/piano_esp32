@@ -4,6 +4,7 @@
 
 use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, Sender};
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -11,7 +12,40 @@ use log::{info, warn};
 use piano_core::engine::{Engine, Msg, Options, State, Stats, ALL_NOTES_OFF};
 use piano_core::song::{HandSel, Song, Step, KEY_HI, KEY_LO};
 
+use crate::audio::SharedSynth;
 use crate::link::KeyEvent;
+
+/// Where played notes sound (Settings → "Notes sound from").
+pub static SOUND: AtomicU8 = AtomicU8::new(SOUND_PIANO);
+pub const SOUND_PIANO: u8 = 0;
+pub const SOUND_SPEAKER: u8 = 1;
+pub const SOUND_BOTH: u8 = 2;
+
+/// Send one engine message to the piano and/or the Tab5 synth.
+///
+/// Hint LEDs (Note On velocity 1) only ever go to the piano. With the
+/// speaker selected, audible notes play on the synth while the piano gets a
+/// silent velocity-1 Note On, so its LEDs still follow the music.
+fn route(m: Msg, out: &Sender<Msg>, synth: &SharedSynth) {
+    let mode = SOUND.load(Ordering::Relaxed);
+    let audible_on = m[0] & 0xf0 == 0x90 && m[2] > 1;
+    match mode {
+        SOUND_SPEAKER if audible_on => {
+            synth.lock().unwrap().note_on(m[1], m[2]);
+            let _ = out.send([m[0], m[1], 1]);
+        }
+        SOUND_SPEAKER | SOUND_BOTH => {
+            let is_hint = m[0] & 0xf0 == 0x90 && m[2] == 1;
+            if !is_hint && m[0] & 0xf0 != 0xc0 {
+                synth.lock().unwrap().midi(&m);
+            }
+            let _ = out.send(m);
+        }
+        _ => {
+            let _ = out.send(m);
+        }
+    }
+}
 
 pub enum Cmd {
     Load(PathBuf),
@@ -57,6 +91,7 @@ pub fn start(
     keys: Receiver<KeyEvent>,
     out: Sender<Msg>,
     initial: Options,
+    synth: SharedSynth,
 ) -> Shared {
     let shared: Shared = Arc::new(Mutex::new(Snapshot {
         opts: initial,
@@ -69,12 +104,19 @@ pub fn start(
     std::thread::Builder::new()
         .name("player".into())
         .stack_size(16 * 1024)
-        .spawn(move || run(cmds, keys, out, sh, initial))
+        .spawn(move || run(cmds, keys, out, sh, initial, synth))
         .expect("spawn player");
     shared
 }
 
-fn run(cmds: Receiver<Cmd>, keys: Receiver<KeyEvent>, out: Sender<Msg>, sh: Shared, initial: Options) {
+fn run(
+    cmds: Receiver<Cmd>,
+    keys: Receiver<KeyEvent>,
+    out: Sender<Msg>,
+    sh: Shared,
+    initial: Options,
+    synth: SharedSynth,
+) {
     let t0 = Instant::now();
     let now_ms = || t0.elapsed().as_millis() as u64;
     let mut engine: Option<Engine> = None;
@@ -233,7 +275,7 @@ fn run(cmds: Receiver<Cmd>, keys: Receiver<KeyEvent>, out: Sender<Msg>, sh: Shar
             }
         }
         for m in buf.drain(..) {
-            let _ = out.send(m);
+            route(m, &out, &synth);
         }
 
         // Publish at most every 15 ms (the UI frames at ~30–60 Hz).

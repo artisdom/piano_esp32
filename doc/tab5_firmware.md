@@ -19,7 +19,17 @@ Sources: `firmware/tab5` (device crate) and `firmware/piano-core`
    port, or choose **Settings → Connect via → Bluetooth** (the Tab5
    restarts and connects to `GZUT-MIDI` automatically). The top-right chip
    turns green when connected.
-3. **Library**: lists scroll by flicking or with the wide scrollbar on
+3. **Library** — four views, chosen with the icon tabs at the top of the
+   list:
+   * **Folders** (browse the card), **★ Bookmarks**, **Recently played**;
+   * **Song globe**: every song is a dot on a sphere, coloured by category
+     (the first folder level of the library: 儿时回忆, 红色歌谣, 流行空间, 经典乐章,
+     影视剧场 for the bundled one) and gold if bookmarked. Drag to spin it
+     (it keeps spinning, then idles slowly), tap a dot to pick that song
+     (white ring; its name shows in the header), tap a colour chip to turn
+     that category towards you.
+
+   Lists scroll by flicking or with the wide scrollbar on
    the right (drag the thumb, or tap the track to jump). Tap folders to browse, tap a song to load it (duration,
    tempo, notes per hand are shown), then **Learn**, **Follow** or
    **Listen**. **Search** (top right of the list) finds a song anywhere on
@@ -45,6 +55,21 @@ Sources: `firmware/tab5` (device crate) and `firmware/piano-core`
 | **Learn** | The next chord lights up silently (Note On velocity 1). The song waits until every lit key is played; the LED goes out as each key is hit. With "Piano plays the other hand" on, the other hand is played for you in step. Accuracy, chord count and streak are shown. |
 | **Follow** | The song runs at the chosen tempo; your hand's keys light up ahead of time ("light keys ahead", 200–1500 ms), and hits within −250/+300 ms are scored. |
 | **Listen** | The piano plays the song (LEDs follow the notes). The hands selector picks what is played. |
+
+**Bookmarks and scores**: the ☆ on the song card bookmarks a song (★ in
+lists, gold on the globe). Finishing a Learn or Follow run that covered at
+least 90 % of the song records its accuracy; the card shows the best Learn
+and Follow scores as stars (★ ≥ 60 %, ★★ ≥ 80 %, ★★★ ≥ 95 %) and the play
+count, lists show the best stars, and a better result gets a "New best!"
+toast. Everything is stored on the card in `.pianocoach/progress.tsv`
+(one tab-separated line per song, readable on a PC).
+
+**Tab5 speaker**: **Settings → Notes sound from** selects **Piano** (default),
+**Tab5** or **Both**, with a speaker volume slider. With **Tab5**, played
+notes (Listen, and the accompaniment in Learn/Follow) come from the Tab5's
+speaker while the piano's LEDs still follow them silently — so songs can
+also be listened to with no piano connected. Your own playing always
+sounds on the piano.
 
 **Shut down**: the power icon at the top right (or **Settings → Shut
 down**) asks for confirmation, stops playback and switches every piano LED
@@ -129,7 +154,9 @@ main.rs ── app task: board bring-up, NVS, transport choice, SD mount
   ├─ ble_midi.rs  (BLE mode)  NimBLE central via C6  ─┤  ◀ MIDI msgs
   ├─ player.rs    engine thread, 1 kHz, owns piano_core::Engine
   └─ ui.rs        Slint software renderer on the DPI framebuffer + touch
-piano-core: smf · song · engine · usbmidi · blemidi · library · search
+  ├─ audio.rs     ES8388 + NS4150B speaker, renders piano_core::synth
+piano-core: smf · song · engine · usbmidi · blemidi · library · search ·
+            progress · synth · sphere
 ```
 
 * **Board** (`board.rs`, BSP in `components/m5stack_tab5_noglib`, vendored
@@ -172,6 +199,30 @@ piano-core: smf · song · engine · usbmidi · blemidi · library · search
   so a chord past B is never waited for or lit; on reaching B the engine
   silences, seeks to A (re-lighting its first chord) and counts a pass.
   Loops shorter than 500 ms are rejected.
+* **Speaker** (`audio.rs`, `piano-core/src/synth.rs`): additive piano
+  voice — 6 slightly inharmonic partials with per-partial exponential
+  decay (bass rings longer, treble shorter, soft notes duller), a short
+  hammer-noise transient, damper on release, sustain pedal, 20 voices with
+  quietest-voice stealing, soft clipping. 24 kHz mono through the BSP's
+  esp_codec_dev on its own task (core 1, priority 12, above the UI); the
+  codec and amp open only while voices sound. Phases are 32-bit integers
+  and sine is a polynomial (no table — heap is in PSRAM): a dense song
+  costs 18–32 % of one core (the first table-based version needed 146 %).
+  The player routes each engine message (`player::route`): hints always to
+  the piano; audible notes to the piano, the synth, or both — with the
+  speaker selected the piano gets a velocity-1 copy so its LEDs follow.
+* **Song globe** (`globe.rs`, `piano-core/src/sphere.rs`): Fibonacci-sphere
+  layout in (category, title) order, perspective + depth shading,
+  inertia and idle spin, pick-by-tap. It is painted **directly into the
+  RGB565 shadow framebuffer** after Slint renders (the Slint page only
+  leaves an empty panel that reports its position): handing Slint a new
+  760×456 image per frame cost ~350 ms. Each frame erases last frame's
+  dots from a cached background, then stamps anti-aliased dot sprites with
+  integer blending; Slint is made to repaint fully when the globe is hidden
+  or moves, so no stale dots survive. ~10 fps while spinning.
+* Release builds use `opt-level = 3` for piano-core, the firmware and
+  Slint's software renderer (`"s"` elsewhere): the globe's projection/sort
+  went from 15 to 4.5 ms. Image ≈ 7.6 MB of the 12 MB partition.
 * `CONFIG_FREERTOS_HZ=1000` for ms-accurate timing; PSRAM XIP; 12 MB app
   partition (image ≈ 4.9 MB).
 
@@ -192,6 +243,9 @@ Tab5: ESP32-P4 rev v1.3, 16 MB flash, ST7123 panel, C6 ESP-Hosted
 | Search: `mbg` → 卖报歌, `xiaoxingxing` → 小星星; result loads | ✔ |
 | A–B loop: jumps back at B, re-lights first chord, pass counter | ✔ (over Bluetooth) |
 | Shut down → LEDs off, Tab5 off (USB-C powered: deep-sleep fallback); power button boots | ✔ |
+| Tab5 speaker playback ("sounds OK", no stutter on a dense song; 18–32 % CPU) | ✔ |
+| Bookmarks listed under ★; Learn score recorded with "New best!"; survives reboot | ✔ |
+| Song globe: spin, tap-to-pick, category chips; no leftovers on screen switches | ✔ |
 
 ## Known limits / ideas
 
@@ -199,6 +253,10 @@ Tab5: ESP32-P4 rev v1.3, 16 MB flash, ST7123 panel, C6 ESP-Hosted
   context), so a polyphonic character in a title may need its other
   reading's letter; characters outside the font's set have no pinyin.
 * The loop end is a time, not a bar line; there is no bar/beat grid yet.
+* The speaker synth is a simple additive model, not sampled piano; it
+  uses a piano voice for every track (no General MIDI instruments).
+* Globe: ~10 fps while spinning (PSRAM bandwidth is shared with the
+  display's scan-out); scores are per song and mode, not per hand.
 * Velocity from the piano is ignored for scoring (it is quantised to ~6
   levels anyway).
 * If the C6 has factory firmware, BLE mode reports "C6 Bluetooth

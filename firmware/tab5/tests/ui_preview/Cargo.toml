@@ -12,6 +12,7 @@ publish = false
 [dependencies]
 slint = { version = "=1.18.1", default-features = false, features = ["std", "compat-1-2", "renderer-software"] }
 png = "0.17"
+piano-core = { path = "../../../piano-core" }
 
 [build-dependencies]
 slint-build = { version = "=1.18.1", features = ["sdf-fonts"] }

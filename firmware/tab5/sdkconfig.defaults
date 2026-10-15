@@ -72,3 +72,6 @@ CONFIG_BT_NIMBLE_ROLE_BROADCASTER=n
 CONFIG_BT_NIMBLE_MAX_CONNECTIONS=1
 CONFIG_BT_NIMBLE_ATT_PREFERRED_MTU=260
 CONFIG_BT_NIMBLE_NVS_PERSIST=y
+# NimBLE logs every GATT write at INFO ("GATT procedure initiated: write no
+# rsp") — two console lines per MIDI packet during playback.
+CONFIG_BT_NIMBLE_LOG_LEVEL_WARNING=y

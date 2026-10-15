@@ -9,11 +9,14 @@
 //! Threads: `app` (boot), `ui` (Slint render + touch), `player` (engine
 //! clock), and the transport's own task (`usb-midi` or NimBLE host).
 
+mod audio;
 mod ble_midi;
 mod board;
+mod globe;
 mod link;
 mod player;
 mod prefs;
+mod store;
 mod ui;
 mod usb_midi;
 
@@ -61,7 +64,11 @@ fn run_app() {
         st
     });
 
-    let shared = player::start(cmd_rx, key_rx, out_tx, ui::initial_options());
+    // Tab5 speaker: synth + codec thread (idle until a note sounds).
+    let synth = audio::start();
+    player::SOUND.store(prefs::get_i32("sound").unwrap_or(0).clamp(0, 2) as u8, std::sync::atomic::Ordering::Relaxed);
+    audio::VOLUME.store(prefs::get_i32("spkvol").unwrap_or(70).clamp(0, 100), std::sync::atomic::Ordering::Relaxed);
+    let shared = player::start(cmd_rx, key_rx, out_tx, ui::initial_options(), synth);
 
     let ctx = ui::Ctx {
         cmds: cmd_tx,

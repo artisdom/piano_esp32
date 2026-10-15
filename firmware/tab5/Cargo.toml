@@ -16,6 +16,18 @@ harness = false # no test harness on the espidf target; logic is tested in piano
 opt-level = "s"
 lto = "thin"
 
+# Hot code at full speed: "s" left the globe painter, the synth and Slint's
+# software renderer un-inlined (globe paint 77 ms/frame at "s"). The image
+# has room (12 MB partition).
+[profile.release.package.piano-core]
+opt-level = 3
+[profile.release.package.piano-tab5]
+opt-level = 3
+[profile.release.package.i-slint-renderer-software]
+opt-level = 3
+[profile.release.package.i-slint-core]
+opt-level = 3
+
 [profile.dev]
 debug = true
 opt-level = "z"

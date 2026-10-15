@@ -25,6 +25,10 @@ pub const WINDOW_HEIGHT: u32 = 720;
 
 pub const SD_MOUNT: &str = "/sdcard";
 
+/// Set once the display (and with it the BSP's system I2C bus) is up; the
+/// audio codec, which shares that bus, waits for it.
+pub static DISPLAY_UP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 /// Clock a wedged system I2C bus free (SCL 32 / SDA 31) and create both
 /// expander handles exactly once: the driver's one-time reset clears every
 /// output, and the expanders keep their state across reboots.
@@ -217,6 +221,7 @@ pub fn display_init(bg565: u16) -> anyhow::Result<Display> {
             let _ = bsp::esp_cache_msync(fb, FRAME_WIDTH * FRAME_HEIGHT * 2, MSYNC_DIR_C2M);
         }
         info!("display up: {FRAME_WIDTH}x{FRAME_HEIGHT} RGB565, fb0={fb0:p} fb1={fb1:p}");
+        DISPLAY_UP.store(true, std::sync::atomic::Ordering::SeqCst);
         Ok(Display {
             panel,
             touch,

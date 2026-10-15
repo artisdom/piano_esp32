@@ -3,12 +3,12 @@ import { Glyphs } from "glyphs.slint";
 import { Theme } from "theme.slint";
 import { Icon } from "icons.slint";
 import { Segmented, Chip, Button, Card } from "widgets.slint";
-import { AppVM, LibraryVM, PlayerVM, SettingsVM, LibEntry, KeyView, RollNote } from "state.slint";
-import { LibraryPage } from "library.slint";
+import { AppVM, LibraryVM, PlayerVM, SettingsVM, LibEntry, LegendItem, KeyView, RollNote } from "state.slint";
+import { LibraryPage, SphereGeom } from "library.slint";
 import { PlayerPage, Geometry } from "player.slint";
 import { SettingsPage } from "settings.slint";
 
-export { AppVM, LibraryVM, PlayerVM, SettingsVM, LibEntry, KeyView, RollNote, Geometry }
+export { AppVM, LibraryVM, PlayerVM, SettingsVM, LibEntry, LegendItem, KeyView, RollNote, Geometry, SphereGeom }
 
 export component AppWindow inherits Window {
     width: 1280px;

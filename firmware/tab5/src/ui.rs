@@ -12,6 +12,7 @@ use log::info;
 use piano_core::engine::{Mode, Options, State};
 use piano_core::engine::MIN_LOOP_MS;
 use piano_core::library::{self, Entry};
+use piano_core::progress::{self, ScoreKind};
 use piano_core::search::{Index, SongRef};
 use piano_core::song::{is_black, key_name, Hand, Song, KEY_HI, KEY_LO};
 use slint::platform::software_renderer::{MinimalSoftwareWindow, RepaintBufferType, Rgb565Pixel};
@@ -22,6 +23,16 @@ use crate::board::{self, FRAME_HEIGHT, FRAME_WIDTH};
 use crate::link::{Status, Transport};
 use crate::player::{self, Cmd, Shared};
 use crate::prefs;
+use crate::globe::Globe;
+use crate::store::Store;
+
+thread_local! {
+    /// Last panel origin reported by Slint (the globe may be built later).
+    static GLOBE_ORIGIN: Cell<Option<(f32, f32)>> = const { Cell::new(None) };
+}
+
+/// Set when bookmarks change so the globe recolours its gold dots.
+static GLOBE_FAVS_DIRTY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 slint::include_modules!();
 
@@ -76,6 +87,10 @@ struct Lib {
     root: PathBuf,
     stack: Vec<(String, String)>, // (fs name, title)
     entries: Vec<Entry>,
+    /// 0 folders, 1 bookmarks, 2 recently played, 3 song globe.
+    view: i32,
+    /// Bookmarks / recent: the song behind each entry.
+    flat: Vec<PathBuf>,
 }
 
 impl Lib {
@@ -102,6 +117,67 @@ impl Lib {
         self.entries = library::sort_entries(v);
         Ok(())
     }
+
+    /// The song file behind list row `i`, if it is one.
+    fn song_path(&self, i: usize) -> Option<PathBuf> {
+        match self.view {
+            0 => self.entries.get(i).filter(|e| !e.is_dir).map(|e| self.dir().join(&e.name)),
+            _ => self.flat.get(i).cloned(),
+        }
+    }
+
+    /// Fill a flat view (bookmarks / recent) from the progress store.
+    fn fill_flat(&mut self, store: &Store) {
+        let rels = match self.view {
+            1 => store.progress.bookmarks(),
+            2 => store.progress.recent(60),
+            _ => Vec::new(),
+        };
+        self.flat = rels.iter().map(|r| store.abs(r)).collect();
+        self.entries = self
+            .flat
+            .iter()
+            .map(|p| {
+                let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                library::entry(&name, false)
+            })
+            .collect();
+    }
+}
+
+/// Parent folder title of a song path, for subtitles.
+fn folder_title(p: &std::path::Path) -> String {
+    p.parent()
+        .and_then(|d| d.file_name())
+        .map(|n| library::entry(&n.to_string_lossy(), true).title)
+        .unwrap_or_default()
+}
+
+/// Stars for a song's best score (learn or follow), "" if never scored.
+fn badge(store: &Store, path: &std::path::Path) -> (bool, String) {
+    let r = store.progress.get(&store.rel(path));
+    let best = r.best_learn.max(r.best_follow);
+    let b = best
+        .map(|a| {
+            let n = progress::stars(a) as usize;
+            format!("{}{}", "★".repeat(n), "☆".repeat(3 - n))
+        })
+        .unwrap_or_default();
+    (r.bookmarked, b)
+}
+
+/// Bookmark / scores / plays line for the song card.
+fn score_line(store: &Store, path: &std::path::Path) -> String {
+    let r = store.progress.get(&store.rel(path));
+    if r.best_learn.is_none() && r.best_follow.is_none() && r.plays == 0 {
+        return String::new();
+    }
+    format!(
+        "Learn {} · Follow {} · played {}×",
+        progress::star_text(r.best_learn),
+        progress::star_text(r.best_follow),
+        r.plays
+    )
 }
 
 fn library_root() -> PathBuf {
@@ -113,15 +189,18 @@ fn library_root() -> PathBuf {
     PathBuf::from("/sdcard")
 }
 
-fn push_library(ui: &AppWindow, lib: &Lib, sd_ok: bool, err: Option<String>) {
+fn push_library(ui: &AppWindow, lib: &Lib, store: &Store, sd_ok: bool, err: Option<String>) {
     let vm = ui.global::<LibraryVM>();
     let mut crumbs: Vec<SharedString> = vec!["Library".into()];
     crumbs.extend(lib.stack.iter().map(|(_, t)| SharedString::from(t.as_str())));
+    let n = lib.entries.len();
     vm.set_path_text(
-        if lib.stack.is_empty() {
-            format!("{} · {} items", lib.root.display(), lib.entries.len())
-        } else {
-            format!("{} items", lib.entries.len())
+        match lib.view {
+            1 => format!("{n} bookmarked songs"),
+            2 => format!("{n} songs, most recent first"),
+            3 => "drag to spin · tap a dot · tap a colour to turn to it".to_string(),
+            _ if lib.stack.is_empty() => format!("{} · {n} items", lib.root.display()),
+            _ => format!("{n} items"),
         }
         .into(),
     );
@@ -129,22 +208,50 @@ fn push_library(ui: &AppWindow, lib: &Lib, sd_ok: bool, err: Option<String>) {
     let rows: Vec<LibEntry> = lib
         .entries
         .iter()
-        .map(|e| LibEntry {
-            title: e.title.as_str().into(),
-            subtitle: e.subtitle.as_str().into(),
-            is_dir: e.is_dir,
+        .enumerate()
+        .map(|(i, e)| {
+            let (fav, badge) = lib.song_path(i).map(|p| badge(store, &p)).unwrap_or_default();
+            let subtitle = match (lib.view, lib.flat.get(i)) {
+                (1 | 2, Some(p)) if e.subtitle.is_empty() => folder_title(p),
+                (1 | 2, Some(p)) => format!("{} · {}", e.subtitle, folder_title(p)),
+                _ => e.subtitle.clone(),
+            };
+            LibEntry {
+                title: e.title.as_str().into(),
+                subtitle: subtitle.into(),
+                is_dir: e.is_dir,
+                fav,
+                badge: badge.into(),
+            }
         })
         .collect();
     vm.set_entries(ModelRc::new(VecModel::from(rows)));
     vm.set_selected(-1);
     vm.set_empty_text(
-        match (sd_ok, err) {
-            (false, _) => "No microSD card. Copy your MIDI files to a FAT32/exFAT card (a `midi` folder is used if present) and insert it.".to_string(),
-            (true, Some(e)) => format!("Cannot read folder: {e}"),
-            (true, None) => "No MIDI files here.".to_string(),
+        match (lib.view, sd_ok, err) {
+            (_, false, _) => "No microSD card. Copy your MIDI files to a FAT32/exFAT card (a `midi` folder is used if present) and insert it.".to_string(),
+            (1, ..) => "No bookmarks yet — tap the ☆ on a song's card to add one.".to_string(),
+            (2, ..) => "Nothing played yet.".to_string(),
+            (_, true, Some(e)) => format!("Cannot read folder: {e}"),
+            (_, true, None) => "No MIDI files here.".to_string(),
         }
         .into(),
     );
+}
+
+/// Show a song in the card and load it into the player.
+fn select_song(ui: &AppWindow, store: &Store, path: PathBuf, cmds: &Sender<Cmd>) {
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let e = library::entry(&name, false);
+    let vm = ui.global::<LibraryVM>();
+    vm.set_sel_title(e.title.as_str().into());
+    vm.set_sel_subtitle(e.subtitle.as_str().into());
+    vm.set_sel_info("Loading…".into());
+    vm.set_sel_error("".into());
+    vm.set_sel_ready(false);
+    vm.set_sel_fav(store.progress.get(&store.rel(&path)).bookmarked);
+    vm.set_sel_scores(score_line(store, &path).into());
+    let _ = cmds.send(Cmd::Load(path));
 }
 
 fn sd_label() -> String {
@@ -207,7 +314,7 @@ fn build_index(search: &SharedSearch, root: PathBuf) {
 }
 
 /// Re-run the query and refresh the result list + status line.
-fn run_search(ui: &AppWindow, search: &SharedSearch, query: &str, results: &RefCell<Vec<SongRef>>) {
+fn run_search(ui: &AppWindow, search: &SharedSearch, query: &str, results: &RefCell<Vec<SongRef>>, store: &Store) {
     let vm = ui.global::<LibraryVM>();
     vm.set_query(query.into());
     vm.set_result_selected(-1);
@@ -231,14 +338,19 @@ fn run_search(ui: &AppWindow, search: &SharedSearch, query: &str, results: &RefC
     );
     let rows: Vec<LibEntry> = hits
         .iter()
-        .map(|h| LibEntry {
-            title: h.title.as_str().into(),
-            subtitle: if h.artist.is_empty() {
-                h.folder.as_str().into()
-            } else {
-                format!("{} · {}", h.artist, h.folder).into()
-            },
-            is_dir: false,
+        .map(|h| {
+            let (fav, badge) = badge(store, &h.path);
+            LibEntry {
+                title: h.title.as_str().into(),
+                subtitle: if h.artist.is_empty() {
+                    h.folder.as_str().into()
+                } else {
+                    format!("{} · {}", h.artist, h.folder).into()
+                },
+                is_dir: false,
+                fav,
+                badge: badge.into(),
+            }
         })
         .collect();
     vm.set_results(ModelRc::new(VecModel::from(rows)));
@@ -322,6 +434,8 @@ pub fn run(ctx: Ctx) -> anyhow::Result<()> {
         let br = prefs::get_i32("brightness").unwrap_or(80).clamp(10, 100);
         s.set_brightness(br as f32);
         board::set_backlight(br);
+        s.set_sound(player::SOUND.load(std::sync::atomic::Ordering::Relaxed) as i32);
+        s.set_speaker_volume(crate::audio::VOLUME.load(std::sync::atomic::Ordering::Relaxed) as f32);
         s.set_transport(match ctx.transport {
             Transport::Usb => 0,
             Transport::Ble => 1,
@@ -338,12 +452,15 @@ pub fn run(ctx: Ctx) -> anyhow::Result<()> {
         root: library_root(),
         stack: Vec::new(),
         entries: Vec::new(),
+        view: 0,
+        flat: Vec::new(),
     }));
     ui.global::<SettingsVM>()
         .set_library_root(lib.borrow().root.display().to_string().into());
+    let store = Rc::new(RefCell::new(Store::load(lib.borrow().root.clone())));
     {
         let err = lib.borrow_mut().reload().err();
-        push_library(&ui, &lib.borrow(), sd_ok.get(), err);
+        push_library(&ui, &lib.borrow(), &store.borrow(), sd_ok.get(), err);
     }
     let toast: Rc<RefCell<Option<Instant>>> = Rc::new(RefCell::new(None));
     let show_toast = {
@@ -360,39 +477,52 @@ pub fn run(ctx: Ctx) -> anyhow::Result<()> {
     // ---- callbacks: library ----------------------------------------------
     {
         let vm = ui.global::<LibraryVM>();
-        let (l, w, c, sd) = (lib.clone(), ui.as_weak(), ctx.cmds.clone(), sd_ok.clone());
+        let (l, w, c, sd, st) = (lib.clone(), ui.as_weak(), ctx.cmds.clone(), sd_ok.clone(), store.clone());
         vm.on_open(move |i| {
             let ui = w.unwrap();
             let entry = l.borrow().entries.get(i as usize).cloned();
             let Some(e) = entry else { return };
-            if e.is_dir {
+            if e.is_dir && l.borrow().view == 0 {
                 l.borrow_mut().stack.push((e.name.clone(), e.title.clone()));
                 let err = l.borrow_mut().reload().err();
-                push_library(&ui, &l.borrow(), sd.get(), err);
-            } else {
-                let vm = ui.global::<LibraryVM>();
-                vm.set_selected(i);
-                vm.set_sel_title(e.title.as_str().into());
-                vm.set_sel_subtitle(e.subtitle.as_str().into());
-                vm.set_sel_info("Loading…".into());
-                vm.set_sel_error("".into());
-                vm.set_sel_ready(false);
-                let _ = c.send(Cmd::Load(l.borrow().dir().join(&e.name)));
+                push_library(&ui, &l.borrow(), &st.borrow(), sd.get(), err);
+            } else if let Some(path) = l.borrow().song_path(i as usize) {
+                ui.global::<LibraryVM>().set_selected(i);
+                select_song(&ui, &st.borrow(), path, &c);
             }
         });
-        let (l, w, sd) = (lib.clone(), ui.as_weak(), sd_ok.clone());
+        let (l, w, sd, st) = (lib.clone(), ui.as_weak(), sd_ok.clone(), store.clone());
         vm.on_up(move || {
             let ui = w.unwrap();
             l.borrow_mut().stack.pop();
             let err = l.borrow_mut().reload().err();
-            push_library(&ui, &l.borrow(), sd.get(), err);
+            push_library(&ui, &l.borrow(), &st.borrow(), sd.get(), err);
         });
-        let (l, w, sd) = (lib.clone(), ui.as_weak(), sd_ok.clone());
+        let (l, w, sd, st) = (lib.clone(), ui.as_weak(), sd_ok.clone(), store.clone());
         vm.on_crumb(move |i| {
             let ui = w.unwrap();
             l.borrow_mut().stack.truncate(i.max(0) as usize);
             let err = l.borrow_mut().reload().err();
-            push_library(&ui, &l.borrow(), sd.get(), err);
+            push_library(&ui, &l.borrow(), &st.borrow(), sd.get(), err);
+        });
+        let (l, w, sd, st) = (lib.clone(), ui.as_weak(), sd_ok.clone(), store.clone());
+        vm.on_set_view(move |v| {
+            let ui = w.unwrap();
+            ui.global::<LibraryVM>().set_view(v);
+            let mut lb = l.borrow_mut();
+            lb.view = v;
+            let err = match v {
+                0 => lb.reload().err(),
+                1 | 2 => {
+                    lb.fill_flat(&st.borrow());
+                    None
+                }
+                _ => {
+                    lb.entries.clear();
+                    None
+                }
+            };
+            push_library(&ui, &lb, &st.borrow(), sd.get(), err);
         });
         let (w, c) = (ui.as_weak(), ctx.cmds.clone());
         vm.on_start(move |mode| {
@@ -414,7 +544,7 @@ pub fn run(ctx: Ctx) -> anyhow::Result<()> {
     let results: Rc<RefCell<Vec<SongRef>>> = Rc::new(RefCell::new(Vec::new()));
     {
         let vm = ui.global::<LibraryVM>();
-        let (w, se, q, r, l) = (ui.as_weak(), search.clone(), query.clone(), results.clone(), lib.clone());
+        let (w, se, q, r, l, sto) = (ui.as_weak(), search.clone(), query.clone(), results.clone(), lib.clone(), store.clone());
         vm.on_search_toggle(move || {
             let ui = w.unwrap();
             let vm = ui.global::<LibraryVM>();
@@ -428,39 +558,98 @@ pub fn run(ctx: Ctx) -> anyhow::Result<()> {
                 if need {
                     build_index(&se, l.borrow().root.clone());
                 }
-                run_search(&ui, &se, &q.borrow(), &r);
+                run_search(&ui, &se, &q.borrow(), &r, &sto.borrow());
             }
         });
-        let (w, se, q, r) = (ui.as_weak(), search.clone(), query.clone(), results.clone());
+        let (w, se, q, r, sto) = (ui.as_weak(), search.clone(), query.clone(), results.clone(), store.clone());
         vm.on_type_key(move |k| {
             if q.borrow().chars().count() < 40 {
                 q.borrow_mut().push_str(&k);
             }
-            run_search(&w.unwrap(), &se, &q.borrow(), &r);
+            run_search(&w.unwrap(), &se, &q.borrow(), &r, &sto.borrow());
         });
-        let (w, se, q, r) = (ui.as_weak(), search.clone(), query.clone(), results.clone());
+        let (w, se, q, r, sto) = (ui.as_weak(), search.clone(), query.clone(), results.clone(), store.clone());
         vm.on_backspace(move || {
             q.borrow_mut().pop();
-            run_search(&w.unwrap(), &se, &q.borrow(), &r);
+            run_search(&w.unwrap(), &se, &q.borrow(), &r, &sto.borrow());
         });
-        let (w, se, q, r) = (ui.as_weak(), search.clone(), query.clone(), results.clone());
+        let (w, se, q, r, sto) = (ui.as_weak(), search.clone(), query.clone(), results.clone(), store.clone());
         vm.on_clear_query(move || {
             q.borrow_mut().clear();
-            run_search(&w.unwrap(), &se, &q.borrow(), &r);
+            run_search(&w.unwrap(), &se, &q.borrow(), &r, &sto.borrow());
         });
-        let (w, r, c) = (ui.as_weak(), results.clone(), ctx.cmds.clone());
+        let (w, r, c, st) = (ui.as_weak(), results.clone(), ctx.cmds.clone(), store.clone());
         vm.on_open_result(move |i| {
             let ui = w.unwrap();
             let Some(hit) = r.borrow().get(i as usize).cloned() else { return };
             let vm = ui.global::<LibraryVM>();
             vm.set_result_selected(i);
             vm.set_selected(-1);
-            vm.set_sel_title(hit.title.as_str().into());
-            vm.set_sel_subtitle(hit.artist.as_str().into());
-            vm.set_sel_info("Loading…".into());
-            vm.set_sel_error("".into());
-            vm.set_sel_ready(false);
-            let _ = c.send(Cmd::Load(hit.path.clone()));
+            select_song(&ui, &st.borrow(), hit.path.clone(), &c);
+        });
+    }
+
+    // ---- callbacks: bookmarks ---------------------------------------------
+    // The song currently loaded in the player (and shown on the card).
+    let sel_path: Rc<RefCell<Option<PathBuf>>> = Rc::new(RefCell::new(None));
+    {
+        let (w, sp, st, l, sd, toast_fn) =
+            (ui.as_weak(), sel_path.clone(), store.clone(), lib.clone(), sd_ok.clone(), show_toast.clone());
+        ui.global::<LibraryVM>().on_toggle_fav(move || {
+            let ui = w.unwrap();
+            let Some(path) = sp.borrow().clone() else { return };
+            let on = {
+                let mut sto = st.borrow_mut();
+                let rel = sto.rel(&path);
+                let on = sto.progress.toggle_bookmark(&rel);
+                sto.save();
+                on
+            };
+            ui.global::<LibraryVM>().set_sel_fav(on);
+            toast_fn(if on { "Bookmarked ★" } else { "Bookmark removed" });
+            let mut lb = l.borrow_mut();
+            if lb.view == 1 {
+                lb.fill_flat(&st.borrow());
+            }
+            if lb.view != 3 {
+                let sel = ui.global::<LibraryVM>().get_selected();
+                push_library(&ui, &lb, &st.borrow(), sd.get(), None);
+                if lb.view != 1 {
+                    ui.global::<LibraryVM>().set_selected(sel);
+                }
+            }
+            GLOBE_FAVS_DIRTY.store(true, std::sync::atomic::Ordering::Relaxed);
+        });
+    }
+
+    // ---- callbacks: song globe ----------------------------------------------
+    let globe: Rc<RefCell<Option<Globe>>> = Rc::new(RefCell::new(None));
+    let globe_rev: Rc<Cell<u32>> = Rc::new(Cell::new(0));
+    {
+        let vm = ui.global::<LibraryVM>();
+        let (w, g, st, c) = (ui.as_weak(), globe.clone(), store.clone(), ctx.cmds.clone());
+        vm.on_sphere_pointer(move |kind, x, y| {
+            let ui = w.unwrap();
+            let picked = g.borrow_mut().as_mut().and_then(|g| g.pointer(kind, x, y, SCROLL_GAIN));
+            if let Some(i) = picked {
+                let path = g.borrow().as_ref().map(|g| g.songs[i].clone());
+                if let Some(path) = path {
+                    select_song(&ui, &st.borrow(), path, &c);
+                }
+            }
+        });
+        let g = globe.clone();
+        vm.on_sphere_origin(move |x, y| {
+            if let Some(g) = g.borrow_mut().as_mut() {
+                g.set_origin(x, y);
+            }
+            GLOBE_ORIGIN.with(|o| o.set(Some((x, y))));
+        });
+        let g = globe.clone();
+        vm.on_legend_tap(move |i| {
+            if let Some(g) = g.borrow_mut().as_mut() {
+                g.face_category(i.max(0) as usize);
+            }
         });
     }
 
@@ -587,6 +776,16 @@ pub fn run(ctx: Ctx) -> anyhow::Result<()> {
             prefs::set_i32("lead", v.round() as i32);
             let _ = c.send(Cmd::SetOptions(current_options(&w.unwrap())));
         });
+        vm.on_set_sound(|v| {
+            let v = v.clamp(0, 2);
+            player::SOUND.store(v as u8, std::sync::atomic::Ordering::Relaxed);
+            prefs::set_i32("sound", v);
+        });
+        vm.on_set_speaker_volume(|v| {
+            let v = v.round() as i32;
+            crate::audio::VOLUME.store(v, std::sync::atomic::Ordering::Relaxed);
+            prefs::set_i32("spkvol", v);
+        });
         let c = ctx.cmds.clone();
         vm.on_led_test(move || {
             let _ = c.send(Cmd::LedTest);
@@ -595,7 +794,7 @@ pub fn run(ctx: Ctx) -> anyhow::Result<()> {
         vm.on_all_off(move || {
             let _ = c.send(Cmd::AllOff);
         });
-        let (l, w, sd, se) = (lib.clone(), ui.as_weak(), sd_ok.clone(), search.clone());
+        let (l, w, sd, se, sto) = (lib.clone(), ui.as_weak(), sd_ok.clone(), search.clone(), store.clone());
         let st = show_toast.clone();
         vm.on_rescan(move || {
             let ui = w.unwrap();
@@ -611,8 +810,11 @@ pub fn run(ctx: Ctx) -> anyhow::Result<()> {
             let mut lb = l.borrow_mut();
             lb.root = library_root();
             lb.stack.clear();
+            lb.view = 0;
+            ui.global::<LibraryVM>().set_view(0);
+            *sto.borrow_mut() = Store::load(lb.root.clone());
             let err = lb.reload().err();
-            push_library(&ui, &lb, sd.get(), err);
+            push_library(&ui, &lb, &sto.borrow(), sd.get(), err);
             if sd.get() {
                 se.lock().unwrap().index = None;
                 build_index(&se, lb.root.clone());
@@ -673,6 +875,10 @@ pub fn run(ctx: Ctx) -> anyhow::Result<()> {
 
     let mut last_rev = u64::MAX;
     let mut last_search_rev = 0u32;
+    let mut last_globe_frame = Instant::now();
+    let mut globe_title: Option<String> = None;
+    // Globe perf: (render µs, slint draw+present µs, frames, since).
+    let mut globe_stats: (u64, u64, u32, Instant) = (0, 0, 0, Instant::now());
     let mut last_path: Option<PathBuf> = None;
     let mut last_state = State::Stopped;
     let mut last_connected: Option<bool> = None;
@@ -738,7 +944,62 @@ pub fn run(ctx: Ctx) -> anyhow::Result<()> {
         if srev != last_search_rev {
             last_search_rev = srev;
             if ui.global::<LibraryVM>().get_searching() {
-                run_search(&ui, &search, &query.borrow(), &results);
+                run_search(&ui, &search, &query.borrow(), &results, &store.borrow());
+            }
+        }
+
+        // ---- song globe: build / update (painted after Slint renders) ----
+        let globe_showing = {
+            let lvm = ui.global::<LibraryVM>();
+            let a = ui.global::<AppVM>();
+            a.get_page() == 0 && lvm.get_view() == 3 && !lvm.get_searching()
+        };
+        if globe_showing {
+            let lvm = ui.global::<LibraryVM>();
+            let srev = search.lock().unwrap().rev;
+            if globe.borrow().is_none() || globe_rev.get() != srev {
+                let index = search.lock().unwrap().index.clone();
+                if let Some(index) = index {
+                    let t = Instant::now();
+                    let mut g = Globe::build(&index, &lib.borrow().root, &store.borrow());
+                    g.select_path(sel_path.borrow().as_deref());
+                    if let Some((x, y)) = GLOBE_ORIGIN.with(|o| o.get()) {
+                        g.set_origin(x, y);
+                    }
+                    info!("globe: {} songs in {} categories ({:?})", g.songs.len(), g.categories.len(), t.elapsed());
+                    let legend: Vec<LegendItem> = g
+                        .categories
+                        .iter()
+                        .take(8)
+                        .map(|(n, c)| LegendItem { name: n.as_str().into(), tint: slint::Color::from_rgb_u8(c[0], c[1], c[2]) })
+                        .collect();
+                    lvm.set_legend(ModelRc::new(VecModel::from(legend)));
+                    *globe.borrow_mut() = Some(g);
+                    globe_rev.set(srev);
+                    globe_title = None;
+                } else {
+                    lvm.set_path_text("indexing the SD card…".into());
+                }
+            }
+            if let Some(g) = globe.borrow_mut().as_mut() {
+                if GLOBE_FAVS_DIRTY.swap(false, std::sync::atomic::Ordering::Relaxed) {
+                    g.refresh_favs(&store.borrow());
+                }
+                if g.selected.map(|i| Some(&g.songs[i])) != Some(sel_path.borrow().as_ref()) {
+                    g.select_path(sel_path.borrow().as_deref());
+                }
+                // Header line: the selected song, or how to use the globe.
+                let title = g.selected_title().map(str::to_string);
+                if title != globe_title {
+                    lvm.set_path_text(
+                        match &title {
+                            Some(t) => format!("● {t}"),
+                            None => format!("{} songs · drag to spin · tap a dot · tap a colour to turn to it", g.songs.len()),
+                        }
+                        .into(),
+                    );
+                    globe_title = title;
+                }
             }
         }
 
@@ -758,6 +1019,7 @@ pub fn run(ctx: Ctx) -> anyhow::Result<()> {
             *cur_song.borrow_mut() = s.song.clone();
             if s.path != last_path {
                 last_path = s.path.clone();
+                *sel_path.borrow_mut() = s.path.clone();
                 // A new song starts without a practice loop.
                 loop_ab.set((None, None));
                 show_loop(&ui, (None, None), 1);
@@ -785,12 +1047,48 @@ pub fn run(ctx: Ctx) -> anyhow::Result<()> {
                 State::Paused => 3,
                 State::Finished => 4,
             });
+            // Play history: a run starts.
+            let running = |st: State| matches!(st, State::Playing | State::Waiting);
+            if running(s.state) && matches!(last_state, State::Stopped | State::Finished) {
+                if let Some(path) = &s.path {
+                    let mut sto = store.borrow_mut();
+                    let rel = sto.rel(path);
+                    sto.progress.record_play(&rel);
+                    sto.save();
+                    ui.global::<LibraryVM>().set_sel_scores(score_line(&sto, path).into());
+                }
+            }
+            // Scoring: a Learn / Follow run that covered (almost) the whole song.
             if s.state == State::Finished && last_state != State::Finished && s.opts.mode != Mode::Listen {
-                show_toast(&format!(
-                    "Finished — {}% accuracy, best streak {}",
-                    s.stats.accuracy(),
-                    s.stats.best_streak
-                ));
+                let st = s.stats;
+                let acc = st.accuracy().min(100) as u8;
+                let covered = match s.opts.mode {
+                    Mode::Learn => st.steps_done * 10 >= st.steps_total * 9,
+                    _ => (st.hits + st.misses) * 10 >= st.steps_total * 9,
+                };
+                let kind = if s.opts.mode == Mode::Learn { ScoreKind::Learn } else { ScoreKind::Follow };
+                let new_best = match (&s.path, covered) {
+                    (Some(path), true) => {
+                        let mut sto = store.borrow_mut();
+                        let rel = sto.rel(path);
+                        let nb = sto.progress.record_score(&rel, kind, acc);
+                        sto.save();
+                        ui.global::<LibraryVM>().set_sel_scores(score_line(&sto, path).into());
+                        nb
+                    }
+                    _ => false,
+                };
+                let stars = "★".repeat(progress::stars(acc) as usize);
+                show_toast(&if new_best {
+                    format!("New best! {stars} {acc}% — best streak {}", st.best_streak)
+                } else {
+                    format!("Finished — {stars} {acc}% accuracy, best streak {}", st.best_streak)
+                });
+                // Refresh list badges.
+                let lb = lib.borrow();
+                if lb.view != 3 {
+                    push_library(&ui, &lb, &store.borrow(), sd_ok.get(), None);
+                }
             }
             last_state = s.state;
             p.set_pos_text(library::fmt_time(s.pos_ms).into());
@@ -929,8 +1227,28 @@ pub fn run(ctx: Ctx) -> anyhow::Result<()> {
         }
 
         // ---- render: shadow buffer (partial), copy dirty band, present ----
+        // Wipe globe dots Slint does not know about: when the globe is
+        // hidden (Slint assumes its empty panel is still there) or moved.
+        // Switching the repaint-buffer type clears Slint's partial-render
+        // cache, so the next render repaints the whole window.
+        let globe_now = {
+            let lvm = ui.global::<LibraryVM>();
+            ui.global::<AppVM>().get_page() == 0 && lvm.get_view() == 3 && !lvm.get_searching()
+        };
+        let mut full_repaint = false;
+        if let Some(g) = globe.borrow_mut().as_mut() {
+            full_repaint = (!globe_now && g.hide()) || g.take_stale_paint();
+        }
+        if full_repaint {
+            window.request_redraw();
+        }
+        let t_draw = Instant::now();
         let mut band: Option<(usize, usize)> = None;
         let redrew = window.draw_if_needed(|renderer| {
+            if full_repaint {
+                renderer.set_repaint_buffer_type(RepaintBufferType::SwappedBuffers);
+                renderer.set_repaint_buffer_type(RepaintBufferType::ReusedBuffer);
+            }
             renderer.set_rendering_rotation(
                 slint::platform::software_renderer::RenderingRotation::Rotate270,
             );
@@ -942,6 +1260,38 @@ pub fn run(ctx: Ctx) -> anyhow::Result<()> {
                 band = Some((y0, (y0 + sz.height as usize).min(V_RES)));
             }
         });
+        // Globe: paint over Slint's frame when it moved or Slint touched its
+        // rows. Paused under overlays (toast, dialogs) so they stay visible.
+        let mut globe_band: Option<(usize, usize)> = None;
+        if globe_showing && globe_now {
+            let a = ui.global::<AppVM>();
+            let overlay = !a.get_toast().is_empty() || a.get_confirm_shutdown() || a.get_shutting_down();
+            let dt = last_globe_frame.elapsed().as_secs_f32() * 1000.0;
+            last_globe_frame = Instant::now();
+            if let Some(g) = globe.borrow_mut().as_mut() {
+                let moved = g.step(dt.min(100.0));
+                let touched = match (band, g.fb_rows()) {
+                    (Some((a0, a1)), Some((b0, b1))) => a0 < b1 && b0 < a1,
+                    _ => false,
+                };
+                if redrew && touched {
+                    g.invalidate();
+                }
+                if !overlay && (moved || (redrew && touched)) {
+                    let t = Instant::now();
+                    globe_band = g.paint(shadow.as_mut_slice());
+                    globe_stats.0 += t.elapsed().as_micros() as u64;
+                    globe_stats.2 += 1;
+                }
+            }
+        } else {
+            last_globe_frame = Instant::now();
+        }
+        let band = match (band, globe_band) {
+            (Some((a0, a1)), Some((b0, b1))) => Some((a0.min(b0), a1.max(b1))),
+            (b, None) | (None, b) => b,
+        };
+        let redrew = redrew || globe_band.is_some();
         if let (true, Some((y0, y1))) = (redrew, band) {
             let (u0, u1) = (y0.min(prev_band.0), y1.max(prev_band.1).min(V_RES));
             unsafe {
@@ -954,6 +1304,19 @@ pub fn run(ctx: Ctx) -> anyhow::Result<()> {
             board::present(&display, back, u0, u1)?;
             prev_band = (y0, y1);
             back ^= 1;
+        }
+        if redrew {
+            globe_stats.1 += t_draw.elapsed().as_micros() as u64;
+        }
+        if globe_stats.2 > 0 && globe_stats.3.elapsed() >= Duration::from_secs(3) {
+            let n = globe_stats.2 as u64;
+            log::debug!(
+                "globe: {:.1} fps · paint {} ms · slint draw + present {} ms per frame",
+                n as f32 / globe_stats.3.elapsed().as_secs_f32(),
+                globe_stats.0 / n / 1000,
+                globe_stats.1 / n / 1000
+            );
+            globe_stats = (0, 0, 0, Instant::now());
         }
         std::thread::sleep(Duration::from_millis(if redrew || window.has_active_animations() { 4 } else { 12 }));
     }

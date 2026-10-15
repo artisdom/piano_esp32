@@ -52,6 +52,8 @@ fn entries(n: usize, dir: bool) -> ModelRc<LibEntry> {
             title: titles[i % titles.len()].into(),
             subtitle: if dir { format!("{} songs", 10 + i).into() } else { "奥斯丁 · 儿时回忆".into() },
             is_dir: dir,
+            fav: !dir && i % 3 == 0,
+            badge: if !dir && i % 2 == 0 { "★★☆".into() } else { "".into() },
         })
         .collect();
     ModelRc::new(VecModel::from(v))
@@ -79,8 +81,39 @@ fn main() {
     lib.set_sel_subtitle("奥斯丁".into());
     lib.set_sel_info("1:12 · 120 bpm · 1046 notes (434 right, 612 left) · hands from tracks".into());
     lib.set_sel_ready(true);
+    lib.set_sel_fav(true);
+    lib.set_sel_scores("Learn ★★☆ 92% · Follow ★☆☆ 71% · played 5×".into());
     app.set_page(0);
     render(&window, "library");
+
+    // Song globe: the panel is painted by the firmware; here we draw the
+    // globe into an image only to check where the panel ends up.
+    lib.on_sphere_origin(|x, y| println!("sphere-origin reported: ({x}, {y})"));
+    lib.set_view(3);
+    lib.set_path_text("● 卖报歌 · 聂耳".into());
+    let names = ["儿时回忆", "红色歌谣", "流行空间", "经典乐章", "影视剧场"];
+    let legend: Vec<LegendItem> = names
+        .iter()
+        .enumerate()
+        .map(|(i, n)| {
+            let c = piano_core::sphere::PALETTE[i];
+            LegendItem { name: (*n).into(), tint: slint::Color::from_rgb_u8(c[0], c[1], c[2]) }
+        })
+        .collect();
+    lib.set_legend(ModelRc::new(VecModel::from(legend)));
+    println!("-- globe view shown");
+    render(&window, "globe");
+    println!("-- search opened");
+    lib.set_searching(true);
+    render(&window, "globe-search");
+    println!("-- search closed");
+    lib.set_searching(false);
+    slint::platform::update_timers_and_animations();
+    render(&window, "globe-after-search");
+    lib.set_view(1);
+    lib.set_path_text("12 bookmarked songs".into());
+    render(&window, "bookmarks");
+    lib.set_view(0);
 
     lib.set_searching(true);
     lib.set_query("xyz".into());
@@ -134,6 +167,7 @@ fn main() {
     s.set_library_root("/sdcard/midi".into());
     s.set_panel("volume 5".into());
     s.set_transport(1);
+    s.set_sound(2);
     app.set_page(2);
     render(&window, "settings");
 

@@ -188,6 +188,8 @@ fn bring_up(status: &Status) -> anyhow::Result<()> {
         esp!(nb::esp_hosted_bt_controller_enable())
             .map_err(|e| anyhow::anyhow!("C6 Bluetooth enable failed: {e}"))?;
         esp!(nb::nimble_port_init())?;
+        // Quiet per-write INFO logs (also set in sdkconfig).
+        esp_idf_svc::sys::esp_log_level_set(c"NimBLE".as_ptr(), esp_idf_svc::sys::esp_log_level_t_ESP_LOG_WARN);
         (*core::ptr::addr_of_mut!(nb::ble_hs_cfg)).sync_cb = Some(on_sync);
         let _ = nb::ble_att_set_preferred_mtu(260);
         nb::nimble_port_freertos_init(Some(host_task));

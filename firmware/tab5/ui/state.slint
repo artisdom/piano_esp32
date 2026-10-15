@@ -4,6 +4,14 @@ export struct LibEntry {
     title: string,
     subtitle: string,
     is-dir: bool,
+    // Songs: bookmarked, and best-score stars ("★★☆", "" if never scored).
+    fav: bool,
+    badge: string,
+}
+
+export struct LegendItem {
+    name: string,
+    tint: color,
 }
 
 // One key of the on-screen keyboard. Geometry is computed in Rust so white
@@ -54,6 +62,17 @@ export global LibraryVM {
     in property <string> sel-info;
     in property <bool> sel-ready;
     in property <string> sel-error;
+    in property <bool> sel-fav;
+    in property <string> sel-scores;
+    callback toggle-fav();
+    // Library view: 0 folders, 1 bookmarks, 2 recently played, 3 song globe.
+    in-out property <int> view: 0;
+    callback set-view(int);
+    // Song globe: painted by Rust into the framebuffer at this origin.
+    callback sphere-origin(length, length);
+    in property <[LegendItem]> legend;
+    callback sphere-pointer(int, length, length); // 0 down, 1 move, 2 up
+    callback legend-tap(int);
     callback open(int);
     callback up();
     callback crumb(int);
@@ -115,6 +134,11 @@ export global SettingsVM {
     in-out property <float> lead: 700;
     in property <string> library-root: "";
     in property <string> panel: "";
+    // Where notes sound: 0 piano, 1 Tab5 speaker, 2 both.
+    in-out property <int> sound: 0;
+    in-out property <float> speaker-volume: 70;
+    callback set-sound(int);
+    callback set-speaker-volume(float);
     in-out property <int> transport: 0; // 0 USB, 1 Bluetooth
     callback set-transport(int);
     callback set-brightness(float);

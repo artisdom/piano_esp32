@@ -7,13 +7,19 @@
 //! * [`usbmidi`] — USB-MIDI 1.0 event packets.
 //! * [`blemidi`] — BLE-MIDI packets in the form the GZUT piano accepts.
 //! * [`library`] — sorting and naming of SD-card library entries.
+//! * [`synth`] — polyphonic additive piano synthesizer for the Tab5 speaker.
+//! * [`progress`] — bookmarks, best scores and play history per song.
+//! * [`sphere`] — the spinning "song globe" library view (math + pixels).
 //! * [`search`] — library-wide song search by Latin text, pinyin or initials.
 
 pub mod blemidi;
 pub mod engine;
 pub mod library;
+pub mod progress;
 mod pinyin_table;
 pub mod search;
 pub mod smf;
 pub mod song;
+pub mod sphere;
+pub mod synth;
 pub mod usbmidi;
