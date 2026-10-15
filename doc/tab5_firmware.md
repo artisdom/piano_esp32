@@ -22,7 +22,8 @@ Sources: `firmware/tab5` (device crate) and `firmware/piano-core`
 3. **Library**: tap folders to browse, tap a song to load it (duration,
    tempo, notes per hand are shown), then **Learn**, **Follow** or
    **Listen**. **Search** (top right of the list) finds a song anywhere on
-   the card from the on-screen letter keyboard: type **pinyin initials**
+   the card from the full-width on-screen letter keyboard (~80×66 px keys; the
+   song card narrows while searching): type **pinyin initials**
    (`mbg` → 卖报歌), **full pinyin** (`xiaoxingxing` → 小星星) or Latin
    text (`once more`); titles and artists are matched, best matches
    first, up to 200 results.
