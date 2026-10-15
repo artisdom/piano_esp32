@@ -1,0 +1,514 @@
+diff -ruN '--exclude=.git' '--exclude=target' '--exclude=Cargo.lock' '--exclude=.cargo-ok' '--exclude=.cargo_vcs_info.json' '--exclude=Cargo.toml.orig' a/esp-idf-hal/src/adc.rs b/esp-idf-hal/src/adc.rs
+--- a/esp-idf-hal/src/adc.rs	2026-08-01 13:42:57.293861324 +1200
++++ b/esp-idf-hal/src/adc.rs	2026-08-01 11:45:48.856834565 +1200
+@@ -43,7 +43,7 @@
+ }
+ 
+ impl_adcu!(ADCU1: adc_unit_t_ADC_UNIT_1);
+-#[cfg(any(esp32, esp32s2, esp32s3, esp32c3, esp32p4))]
++#[cfg(any(esp32, esp32s2, esp32s3, esp32c3, esp32p4, esp32s31))]
+ impl_adcu!(ADCU2: adc_unit_t_ADC_UNIT_2);
+ 
+ /// A trait designating the ADC channel
+@@ -135,7 +135,8 @@
+     #[cfg(esp32)]
+     Resolution11Bit,
+     #[cfg(any(
+-        esp32, esp32c3, esp32s3, esp32c2, esp32h2, esp32h4, esp32c5, esp32c6, esp32c61, esp32p4
++        esp32, esp32c3, esp32s3, esp32c2, esp32h2, esp32h4, esp32c5, esp32c6, esp32c61, esp32p4,
++        esp32s31
+     ))]
+     Resolution12Bit,
+     #[cfg(esp32s2)]
+@@ -172,7 +173,7 @@
+             Resolution::Resolution11Bit => adc_bitwidth_t_ADC_BITWIDTH_11,
+             #[cfg(any(
+                 esp32, esp32s3, esp32c3, esp32c2, esp32h2, esp32h4, esp32c5, esp32c6, esp32c61,
+-                esp32p4
++                esp32p4, esp32s31
+             ))]
+             Resolution::Resolution12Bit => adc_bitwidth_t_ADC_BITWIDTH_12,
+             #[cfg(esp32s2)]
+@@ -193,7 +194,7 @@
+             Resolution::Resolution11Bit => adc_bits_width_t_ADC_WIDTH_BIT_11,
+             #[cfg(any(
+                 esp32, esp32s3, esp32c3, esp32c2, esp32h2, esp32h4, esp32c5, esp32c6, esp32c61,
+-                esp32p4
++                esp32p4, esp32s31
+             ))]
+             Resolution::Resolution12Bit => adc_bits_width_t_ADC_WIDTH_BIT_12,
+             #[cfg(esp32s2)]
+@@ -539,7 +540,8 @@
+         };
+ 
+         #[cfg(any(
+-            esp32c3, esp32s2, esp32c2, esp32h2, esp32h4, esp32c5, esp32c6, esp32c61, esp32p4
++            esp32c3, esp32s2, esp32c2, esp32h2, esp32h4, esp32c5, esp32c6, esp32c61, esp32p4,
++            esp32s31
+         ))]
+         let mv = match attenuation {
+             attenuation::NONE => 750,
+diff -ruN '--exclude=.git' '--exclude=target' '--exclude=Cargo.lock' '--exclude=.cargo-ok' '--exclude=.cargo_vcs_info.json' '--exclude=Cargo.toml.orig' a/esp-idf-hal/src/cpu.rs b/esp-idf-hal/src/cpu.rs
+--- a/esp-idf-hal/src/cpu.rs	2026-08-01 13:42:57.295861339 +1200
++++ b/esp-idf-hal/src/cpu.rs	2026-08-01 11:45:48.858834578 +1200
+@@ -1,4 +1,4 @@
+-#[cfg(any(esp32, esp32s3, esp32p4))]
++#[cfg(any(esp32, esp32s3, esp32p4, esp32s31))]
+ use core::arch::asm;
+ 
+ use esp_idf_sys::*;
+@@ -12,7 +12,7 @@
+ #[repr(C)]
+ pub enum Core {
+     Core0 = 0, // PRO on dual-core systems, the one and only CPU on single-core systems
+-    #[cfg(any(esp32, esp32s3, esp32p4))]
++    #[cfg(any(esp32, esp32s3, esp32p4, esp32s31))]
+     Core1 = 1, // APP on dual-core systems
+ }
+ 
+@@ -33,7 +33,7 @@
+     fn from(core: i32) -> Self {
+         match core {
+             0 => Core::Core0,
+-            #[cfg(any(esp32, esp32s3, esp32p4))]
++            #[cfg(any(esp32, esp32s3, esp32p4, esp32s31))]
+             1 => Core::Core1,
+             _ => panic!(),
+         }
+@@ -55,7 +55,7 @@
+     let core = 0;
+ 
+     #[allow(unused_assignments)]
+-    #[cfg(any(esp32, esp32s3, esp32p4))]
++    #[cfg(any(esp32, esp32s3, esp32p4, esp32s31))]
+     let mut core = 0;
+ 
+     #[cfg(any(esp32, esp32s3))]
+@@ -63,14 +63,14 @@
+         asm!("rsr.prid {0}", "extui {0},{0},13,1", out(reg) core);
+     }
+ 
+-    #[cfg(esp32p4)]
++    #[cfg(any(esp32p4, esp32s31))]
+     unsafe {
+         asm!("csrr {0}, mhartid", out(reg) core);
+     }
+ 
+     match core {
+         0 => Core::Core0,
+-        #[cfg(any(esp32, esp32s3, esp32p4))]
++        #[cfg(any(esp32, esp32s3, esp32p4, esp32s31))]
+         1 => Core::Core1,
+         other => panic!("Unknown core: {other}"),
+     }
+diff -ruN '--exclude=.git' '--exclude=target' '--exclude=Cargo.lock' '--exclude=.cargo-ok' '--exclude=.cargo_vcs_info.json' '--exclude=Cargo.toml.orig' a/esp-idf-hal/src/gpio.rs b/esp-idf-hal/src/gpio.rs
+--- a/esp-idf-hal/src/gpio.rs	2026-08-01 13:42:57.296861347 +1200
++++ b/esp-idf-hal/src/gpio.rs	2026-08-01 11:47:12.557391828 +1200
+@@ -2812,3 +2812,221 @@
+         }
+     }
+ }
++
++// Initial ESP32-S31 pin map, based on ESP-IDF master soc_caps.h,
++// rtc_io_channel.h, and adc_channel.h. GPIO29 and GPIO41 are not bonded as
++// general-purpose pins on this chip.
++#[cfg(esp32s31)]
++mod chip {
++    #[cfg(feature = "alloc")]
++    extern crate alloc;
++
++    #[cfg(feature = "alloc")]
++    use alloc::boxed::Box;
++
++    use crate::interrupt::asynch::HalIsrNotification;
++
++    use super::*;
++
++    #[allow(clippy::type_complexity)]
++    #[cfg(feature = "alloc")]
++    pub(crate) static mut PIN_ISR_HANDLER: [Option<Box<dyn FnMut() + Send + 'static>>; 62] =
++        [PIN_ISR_INIT; 62];
++
++    #[allow(clippy::type_complexity)]
++    pub(crate) static PIN_NOTIF: [HalIsrNotification; 62] = [PIN_NOTIF_INIT; 62];
++
++    pin!(Gpio0:0, IO, RTC:0, NOADC:NOADC, NODAC:0, NOTOUCH:0);
++    pin!(Gpio1:1, IO, RTC:1, NOADC:NOADC, NODAC:0, NOTOUCH:0);
++    pin!(Gpio2:2, IO, RTC:2, NOADC:NOADC, NODAC:0, NOTOUCH:0);
++    pin!(Gpio3:3, IO, RTC:3, NOADC:NOADC, NODAC:0, NOTOUCH:0);
++    pin!(Gpio4:4, IO, RTC:4, NOADC:NOADC, NODAC:0, NOTOUCH:0);
++    pin!(Gpio5:5, IO, RTC:5, NOADC:NOADC, NODAC:0, NOTOUCH:0);
++    pin!(Gpio6:6, IO, RTC:6, NOADC:NOADC, NODAC:0, NOTOUCH:0);
++    pin!(Gpio7:7, IO, RTC:7, NOADC:NOADC, NODAC:0, NOTOUCH:0);
++
++    pin!(Gpio8:8, IO, NORTC:0, NOADC:NOADC, NODAC:0, NOTOUCH:0);
++    pin!(Gpio9:9, IO, NORTC:0, NOADC:NOADC, NODAC:0, NOTOUCH:0);
++    pin!(Gpio10:10, IO, NORTC:0, NOADC:NOADC, NODAC:0, NOTOUCH:0);
++    pin!(Gpio11:11, IO, NORTC:0, NOADC:NOADC, NODAC:0, NOTOUCH:0);
++    pin!(Gpio12:12, IO, NORTC:0, NOADC:NOADC, NODAC:0, NOTOUCH:0);
++    pin!(Gpio13:13, IO, NORTC:0, NOADC:NOADC, NODAC:0, NOTOUCH:0);
++    pin!(Gpio14:14, IO, NORTC:0, NOADC:NOADC, NODAC:0, NOTOUCH:0);
++    pin!(Gpio15:15, IO, NORTC:0, NOADC:NOADC, NODAC:0, NOTOUCH:0);
++    pin!(Gpio16:16, IO, NORTC:0, NOADC:NOADC, NODAC:0, NOTOUCH:0);
++    pin!(Gpio17:17, IO, NORTC:0, NOADC:NOADC, NODAC:0, NOTOUCH:0);
++    pin!(Gpio18:18, IO, NORTC:0, NOADC:NOADC, NODAC:0, NOTOUCH:0);
++    pin!(Gpio19:19, IO, NORTC:0, NOADC:NOADC, NODAC:0, NOTOUCH:0);
++    pin!(Gpio20:20, IO, NORTC:0, NOADC:NOADC, NODAC:0, NOTOUCH:0);
++    pin!(Gpio21:21, IO, NORTC:0, NOADC:NOADC, NODAC:0, NOTOUCH:0);
++    pin!(Gpio22:22, IO, NORTC:0, NOADC:NOADC, NODAC:0, NOTOUCH:0);
++    pin!(Gpio23:23, IO, NORTC:0, NOADC:NOADC, NODAC:0, NOTOUCH:0);
++    pin!(Gpio24:24, IO, NORTC:0, NOADC:NOADC, NODAC:0, NOTOUCH:0);
++    pin!(Gpio25:25, IO, NORTC:0, NOADC:NOADC, NODAC:0, NOTOUCH:0);
++    pin!(Gpio26:26, IO, NORTC:0, NOADC:NOADC, NODAC:0, NOTOUCH:0);
++    pin!(Gpio27:27, IO, NORTC:0, NOADC:NOADC, NODAC:0, NOTOUCH:0);
++    pin!(Gpio28:28, IO, NORTC:0, NOADC:NOADC, NODAC:0, NOTOUCH:0);
++    pin!(Gpio30:30, IO, NORTC:0, NOADC:NOADC, NODAC:0, NOTOUCH:0);
++    pin!(Gpio31:31, IO, NORTC:0, NOADC:NOADC, NODAC:0, NOTOUCH:0);
++    pin!(Gpio32:32, IO, NORTC:0, NOADC:NOADC, NODAC:0, NOTOUCH:0);
++    pin!(Gpio33:33, IO, NORTC:0, NOADC:NOADC, NODAC:0, NOTOUCH:0);
++    pin!(Gpio34:34, IO, NORTC:0, NOADC:NOADC, NODAC:0, NOTOUCH:0);
++    pin!(Gpio35:35, IO, NORTC:0, NOADC:NOADC, NODAC:0, NOTOUCH:0);
++    pin!(Gpio36:36, IO, NORTC:0, NOADC:NOADC, NODAC:0, NOTOUCH:0);
++    pin!(Gpio37:37, IO, NORTC:0, NOADC:NOADC, NODAC:0, NOTOUCH:0);
++    pin!(Gpio38:38, IO, NORTC:0, NOADC:NOADC, NODAC:0, NOTOUCH:0);
++    pin!(Gpio39:39, IO, NORTC:0, NOADC:NOADC, NODAC:0, NOTOUCH:0);
++    pin!(Gpio40:40, IO, NORTC:0, NOADC:NOADC, NODAC:0, NOTOUCH:0);
++    pin!(Gpio42:42, IO, NORTC:0, ADC1:ADCCH0, NODAC:0, NOTOUCH:0);
++    pin!(Gpio43:43, IO, NORTC:0, ADC1:ADCCH1, NODAC:0, NOTOUCH:0);
++    pin!(Gpio44:44, IO, NORTC:0, ADC1:ADCCH2, NODAC:0, NOTOUCH:0);
++    pin!(Gpio45:45, IO, NORTC:0, ADC1:ADCCH3, NODAC:0, NOTOUCH:0);
++    pin!(Gpio46:46, IO, NORTC:0, ADC1:ADCCH4, NODAC:0, NOTOUCH:0);
++    pin!(Gpio47:47, IO, NORTC:0, ADC1:ADCCH5, NODAC:0, NOTOUCH:0);
++    pin!(Gpio48:48, IO, NORTC:0, ADC1:ADCCH6, NODAC:0, NOTOUCH:0);
++    pin!(Gpio49:49, IO, NORTC:0, ADC1:ADCCH7, NODAC:0, NOTOUCH:0);
++    pin!(Gpio50:50, IO, NORTC:0, ADC2:ADCCH0, NODAC:0, NOTOUCH:0);
++    pin!(Gpio51:51, IO, NORTC:0, ADC2:ADCCH1, NODAC:0, NOTOUCH:0);
++    pin!(Gpio52:52, IO, NORTC:0, ADC2:ADCCH2, NODAC:0, NOTOUCH:0);
++    pin!(Gpio53:53, IO, NORTC:0, ADC2:ADCCH3, NODAC:0, NOTOUCH:0);
++    pin!(Gpio54:54, IO, NORTC:0, ADC2:ADCCH4, NODAC:0, NOTOUCH:0);
++    pin!(Gpio55:55, IO, NORTC:0, ADC2:ADCCH5, NODAC:0, NOTOUCH:0);
++    pin!(Gpio56:56, IO, NORTC:0, ADC2:ADCCH6, NODAC:0, NOTOUCH:0);
++    pin!(Gpio57:57, IO, NORTC:0, ADC2:ADCCH7, NODAC:0, NOTOUCH:0);
++    pin!(Gpio58:58, IO, NORTC:0, NOADC:NOADC, NODAC:0, NOTOUCH:0);
++    pin!(Gpio59:59, IO, NORTC:0, NOADC:NOADC, NODAC:0, NOTOUCH:0);
++    pin!(Gpio60:60, IO, NORTC:0, NOADC:NOADC, NODAC:0, NOTOUCH:0);
++    pin!(Gpio61:61, IO, NORTC:0, NOADC:NOADC, NODAC:0, NOTOUCH:0);
++
++    pub struct Pins {
++        pub gpio0: Gpio0<'static>,
++        pub gpio1: Gpio1<'static>,
++        pub gpio2: Gpio2<'static>,
++        pub gpio3: Gpio3<'static>,
++        pub gpio4: Gpio4<'static>,
++        pub gpio5: Gpio5<'static>,
++        pub gpio6: Gpio6<'static>,
++        pub gpio7: Gpio7<'static>,
++        pub gpio8: Gpio8<'static>,
++        pub gpio9: Gpio9<'static>,
++        pub gpio10: Gpio10<'static>,
++        pub gpio11: Gpio11<'static>,
++        pub gpio12: Gpio12<'static>,
++        pub gpio13: Gpio13<'static>,
++        pub gpio14: Gpio14<'static>,
++        pub gpio15: Gpio15<'static>,
++        pub gpio16: Gpio16<'static>,
++        pub gpio17: Gpio17<'static>,
++        pub gpio18: Gpio18<'static>,
++        pub gpio19: Gpio19<'static>,
++        pub gpio20: Gpio20<'static>,
++        pub gpio21: Gpio21<'static>,
++        pub gpio22: Gpio22<'static>,
++        pub gpio23: Gpio23<'static>,
++        pub gpio24: Gpio24<'static>,
++        pub gpio25: Gpio25<'static>,
++        pub gpio26: Gpio26<'static>,
++        pub gpio27: Gpio27<'static>,
++        pub gpio28: Gpio28<'static>,
++        pub gpio30: Gpio30<'static>,
++        pub gpio31: Gpio31<'static>,
++        pub gpio32: Gpio32<'static>,
++        pub gpio33: Gpio33<'static>,
++        pub gpio34: Gpio34<'static>,
++        pub gpio35: Gpio35<'static>,
++        pub gpio36: Gpio36<'static>,
++        pub gpio37: Gpio37<'static>,
++        pub gpio38: Gpio38<'static>,
++        pub gpio39: Gpio39<'static>,
++        pub gpio40: Gpio40<'static>,
++        pub gpio42: Gpio42<'static>,
++        pub gpio43: Gpio43<'static>,
++        pub gpio44: Gpio44<'static>,
++        pub gpio45: Gpio45<'static>,
++        pub gpio46: Gpio46<'static>,
++        pub gpio47: Gpio47<'static>,
++        pub gpio48: Gpio48<'static>,
++        pub gpio49: Gpio49<'static>,
++        pub gpio50: Gpio50<'static>,
++        pub gpio51: Gpio51<'static>,
++        pub gpio52: Gpio52<'static>,
++        pub gpio53: Gpio53<'static>,
++        pub gpio54: Gpio54<'static>,
++        pub gpio55: Gpio55<'static>,
++        pub gpio56: Gpio56<'static>,
++        pub gpio57: Gpio57<'static>,
++        pub gpio58: Gpio58<'static>,
++        pub gpio59: Gpio59<'static>,
++        pub gpio60: Gpio60<'static>,
++        pub gpio61: Gpio61<'static>,
++    }
++
++    impl Pins {
++        /// # Safety
++        /// The caller must ensure no other `Pins` instance exists.
++        pub unsafe fn new() -> Self {
++            Self {
++                gpio0: Gpio0::steal(),
++                gpio1: Gpio1::steal(),
++                gpio2: Gpio2::steal(),
++                gpio3: Gpio3::steal(),
++                gpio4: Gpio4::steal(),
++                gpio5: Gpio5::steal(),
++                gpio6: Gpio6::steal(),
++                gpio7: Gpio7::steal(),
++                gpio8: Gpio8::steal(),
++                gpio9: Gpio9::steal(),
++                gpio10: Gpio10::steal(),
++                gpio11: Gpio11::steal(),
++                gpio12: Gpio12::steal(),
++                gpio13: Gpio13::steal(),
++                gpio14: Gpio14::steal(),
++                gpio15: Gpio15::steal(),
++                gpio16: Gpio16::steal(),
++                gpio17: Gpio17::steal(),
++                gpio18: Gpio18::steal(),
++                gpio19: Gpio19::steal(),
++                gpio20: Gpio20::steal(),
++                gpio21: Gpio21::steal(),
++                gpio22: Gpio22::steal(),
++                gpio23: Gpio23::steal(),
++                gpio24: Gpio24::steal(),
++                gpio25: Gpio25::steal(),
++                gpio26: Gpio26::steal(),
++                gpio27: Gpio27::steal(),
++                gpio28: Gpio28::steal(),
++                gpio30: Gpio30::steal(),
++                gpio31: Gpio31::steal(),
++                gpio32: Gpio32::steal(),
++                gpio33: Gpio33::steal(),
++                gpio34: Gpio34::steal(),
++                gpio35: Gpio35::steal(),
++                gpio36: Gpio36::steal(),
++                gpio37: Gpio37::steal(),
++                gpio38: Gpio38::steal(),
++                gpio39: Gpio39::steal(),
++                gpio40: Gpio40::steal(),
++                gpio42: Gpio42::steal(),
++                gpio43: Gpio43::steal(),
++                gpio44: Gpio44::steal(),
++                gpio45: Gpio45::steal(),
++                gpio46: Gpio46::steal(),
++                gpio47: Gpio47::steal(),
++                gpio48: Gpio48::steal(),
++                gpio49: Gpio49::steal(),
++                gpio50: Gpio50::steal(),
++                gpio51: Gpio51::steal(),
++                gpio52: Gpio52::steal(),
++                gpio53: Gpio53::steal(),
++                gpio54: Gpio54::steal(),
++                gpio55: Gpio55::steal(),
++                gpio56: Gpio56::steal(),
++                gpio57: Gpio57::steal(),
++                gpio58: Gpio58::steal(),
++                gpio59: Gpio59::steal(),
++                gpio60: Gpio60::steal(),
++                gpio61: Gpio61::steal(),
++            }
++        }
++    }
++}
+diff -ruN '--exclude=.git' '--exclude=target' '--exclude=Cargo.lock' '--exclude=.cargo-ok' '--exclude=.cargo_vcs_info.json' '--exclude=Cargo.toml.orig' a/esp-idf-hal/src/i2s.rs b/esp-idf-hal/src/i2s.rs
+--- a/esp-idf-hal/src/i2s.rs	2026-08-01 13:42:57.297861354 +1200
++++ b/esp-idf-hal/src/i2s.rs	2026-08-01 12:34:13.287764616 +1200
+@@ -260,7 +260,7 @@
+                     all(esp_idf_version_major = "5", esp_idf_version_minor = "2"),
+                 ))]
+                 auto_clear: self.auto_clear,
+-                // ESP-IDF 5.3 introduced auto_clear for before_cb & after_cb 
++                // ESP-IDF 5.3 introduced auto_clear for before_cb & after_cb
+                 #[cfg(not(any(
+                     esp_idf_version_major = "4",
+                     all(esp_idf_version_major = "5", esp_idf_version_minor = "0"),
+@@ -705,6 +705,7 @@
+                 on_recv_q_ovf: Some(dispatch_recv),
+                 on_sent: Some(dispatch_send),
+                 on_send_q_ovf: Some(dispatch_send),
++                ..Default::default()
+             };
+ 
+             // Safety: chan_handle is a valid pointer to an i2s_chan_handle_t and callbacks is initialized.
+@@ -728,6 +729,7 @@
+                 on_recv_q_ovf: None,
+                 on_sent: None,
+                 on_send_q_ovf: None,
++                ..Default::default()
+             };
+ 
+             // Safety: chan_handle is a valid pointer to an i2s_chan_handle_t and callbacks is initialized.
+@@ -751,6 +753,7 @@
+                 on_recv_q_ovf: None,
+                 on_sent: None,
+                 on_send_q_ovf: None,
++                ..Default::default()
+             };
+ 
+             // Safety: chan_handle is a valid pointer to an i2s_chan_handle_t and callbacks is initialized.
+diff -ruN '--exclude=.git' '--exclude=target' '--exclude=Cargo.lock' '--exclude=.cargo-ok' '--exclude=.cargo_vcs_info.json' '--exclude=Cargo.toml.orig' a/esp-idf-hal/src/interrupt.rs b/esp-idf-hal/src/interrupt.rs
+--- a/esp-idf-hal/src/interrupt.rs	2026-10-04 00:59:03.733693202 +1300
++++ b/esp-idf-hal/src/interrupt.rs	2026-10-04 00:35:53.613685293 +1300
+@@ -163,13 +163,13 @@
+ }
+
+ /// A critical section allows the user to disable interrupts
+-#[cfg(any(esp32, esp32s2, esp32s3, esp32p4))]
++#[cfg(any(esp32, esp32s2, esp32s3, esp32p4, esp32s31))]
+ pub struct IsrCriticalSection(core::cell::UnsafeCell<portMUX_TYPE>);
+
+-#[cfg(not(any(esp32, esp32s2, esp32s3, esp32p4)))]
++#[cfg(not(any(esp32, esp32s2, esp32s3, esp32p4, esp32s31)))]
+ pub struct IsrCriticalSection(core::marker::PhantomData<*const ()>);
+
+-#[cfg(not(any(esp32, esp32s2, esp32s3, esp32p4)))]
++#[cfg(not(any(esp32, esp32s2, esp32s3, esp32p4, esp32s31)))]
+ #[inline(always)]
+ #[link_section = ".iram1.interrupt_enter"]
+ fn enter(_cs: &IsrCriticalSection) {
+@@ -178,7 +178,7 @@
+     }
+ }
+
+-#[cfg(any(esp32, esp32s2, esp32s3, esp32p4))]
++#[cfg(any(esp32, esp32s2, esp32s3, esp32p4, esp32s31))]
+ #[inline(always)]
+ #[link_section = ".iram1.interrupt_enter"]
+ fn enter(cs: &IsrCriticalSection) {
+@@ -187,7 +187,7 @@
+     }
+ }
+
+-#[cfg(not(any(esp32, esp32s2, esp32s3, esp32p4)))]
++#[cfg(not(any(esp32, esp32s2, esp32s3, esp32p4, esp32s31)))]
+ #[inline(always)]
+ #[link_section = ".iram1.interrupt_exit"]
+ fn exit(_cs: &IsrCriticalSection) {
+@@ -205,7 +205,7 @@
+     }
+ }
+
+-#[cfg(esp32p4)]
++#[cfg(any(esp32p4, esp32s31))]
+ #[inline(always)]
+ #[link_section = ".iram1.interrupt_exit"]
+ fn exit(cs: &IsrCriticalSection) {
+@@ -218,7 +218,7 @@
+     /// Constructs a new `IsrCriticalSection` instance
+     #[inline(always)]
+     pub const fn new() -> Self {
+-        #[cfg(any(esp32, esp32s2, esp32s3, esp32p4))]
++        #[cfg(any(esp32, esp32s2, esp32s3, esp32p4, esp32s31))]
+         let mux = core::cell::UnsafeCell::new(portMUX_TYPE {
+             owner: portMUX_FREE_VAL,
+             count: 0,
+@@ -228,7 +228,7 @@
+             lastLockedLine: -1,
+         });
+
+-        #[cfg(not(any(esp32, esp32s2, esp32s3, esp32p4)))]
++        #[cfg(not(any(esp32, esp32s2, esp32s3, esp32p4, esp32s31)))]
+         let mux = core::marker::PhantomData;
+
+         Self(mux)
+diff -ruN '--exclude=.git' '--exclude=target' '--exclude=Cargo.lock' '--exclude=.cargo-ok' '--exclude=.cargo_vcs_info.json' '--exclude=Cargo.toml.orig' a/esp-idf-hal/src/lib.rs b/esp-idf-hal/src/lib.rs
+--- a/esp-idf-hal/src/lib.rs	2026-08-01 13:42:57.306861422 +1200
++++ b/esp-idf-hal/src/lib.rs	2026-08-01 11:45:48.851834531 +1200
+@@ -54,7 +54,13 @@
+ ))]
+ pub mod onewire;
+ 
+-#[cfg(all(not(feature = "pcnt-legacy"), esp_idf_soc_pcnt_supported))]
++// ESP32-S31 advertises PCNT in soc_caps, but its new driver is not yet exposed
++// through the public ESP-IDF master headers consumed by bindgen.
++#[cfg(all(
++    not(feature = "pcnt-legacy"),
++    esp_idf_soc_pcnt_supported,
++    not(esp32s31)
++))]
+ #[cfg_attr(feature = "nightly", doc(cfg(esp_idf_soc_pcnt_supported)))]
+ pub mod pcnt;
+ 
+@@ -159,7 +165,9 @@
+ ))]
+ pub mod ulp;
+ pub mod units;
+-#[cfg(esp_idf_soc_usb_serial_jtag_supported)]
++// Keep the raw USB-Serial-JTAG peripheral available through esp-idf-sys on
++// S31; the typed pin mapping has not landed in esp-idf-hal yet.
++#[cfg(all(esp_idf_soc_usb_serial_jtag_supported, not(esp32s31)))]
+ pub mod usb_serial;
+ 
+ // This is used to create `embedded_hal` compatible error structs
+diff -ruN '--exclude=.git' '--exclude=target' '--exclude=Cargo.lock' '--exclude=.cargo-ok' '--exclude=.cargo_vcs_info.json' '--exclude=Cargo.toml.orig' a/esp-idf-hal/src/peripherals.rs b/esp-idf-hal/src/peripherals.rs
+--- a/esp-idf-hal/src/peripherals.rs	2026-08-01 13:42:57.308861437 +1200
++++ b/esp-idf-hal/src/peripherals.rs	2026-08-01 11:45:48.853834545 +1200
+@@ -42,7 +42,7 @@
+     esp_idf_comp_ulp_enabled
+ ))]
+ use crate::ulp;
+-#[cfg(esp_idf_soc_usb_serial_jtag_supported)]
++#[cfg(all(esp_idf_soc_usb_serial_jtag_supported, not(esp32s31)))]
+ use crate::usb_serial;
+ 
+ pub struct Peripherals {
+@@ -153,7 +153,7 @@
+         any(esp_idf_version_major = "4", esp_idf_version = "5.0")
+     ))]
+     pub twdt: watchdog::TWDT<'static>,
+-    #[cfg(esp_idf_soc_usb_serial_jtag_supported)]
++    #[cfg(all(esp_idf_soc_usb_serial_jtag_supported, not(esp32s31)))]
+     pub usb_serial: usb_serial::USB_SERIAL<'static>,
+ }
+ 
+@@ -291,7 +291,7 @@
+                 any(esp_idf_version_major = "4", esp_idf_version = "5.0")
+             ))]
+             twdt: watchdog::TWDT::steal(),
+-            #[cfg(esp_idf_soc_usb_serial_jtag_supported)]
++            #[cfg(all(esp_idf_soc_usb_serial_jtag_supported, not(esp32s31)))]
+             usb_serial: usb_serial::USB_SERIAL::steal(),
+         }
+     }
+diff -ruN '--exclude=.git' '--exclude=target' '--exclude=Cargo.lock' '--exclude=.cargo-ok' '--exclude=.cargo_vcs_info.json' '--exclude=Cargo.toml.orig' a/esp-idf-hal/src/task.rs b/esp-idf-hal/src/task.rs
+--- a/esp-idf-hal/src/task.rs	2026-08-01 13:42:57.315861490 +1200
++++ b/esp-idf-hal/src/task.rs	2026-08-01 11:45:48.861834598 +1200
+@@ -91,17 +91,19 @@
+             if let Some((yielder, arg)) = interrupt::get_isr_yielder() {
+                 yielder(arg);
+             } else {
+-                #[cfg(any(esp32c3, esp32c2, esp32h2, esp32c5, esp32c6, esp32p4))]
++                #[cfg(any(esp32c3, esp32c2, esp32h2, esp32c5, esp32c6, esp32p4, esp32s31))]
+                 vPortYieldFromISR();
+ 
+                 #[cfg(all(
+-                    not(any(esp32c3, esp32c2, esp32h2, esp32c5, esp32c6, esp32p4)),
++                    not(any(esp32c3, esp32c2, esp32h2, esp32c5, esp32c6, esp32p4, esp32s31)),
+                     esp_idf_version_major = "4"
+                 ))]
+                 vPortEvaluateYieldFromISR(0);
+ 
+                 #[cfg(all(
+-                    not(any(esp32c3, esp32c2, esp32h2, esp32c5, esp32c6, esp32c61, esp32p4)),
++                    not(any(
++                        esp32c3, esp32c2, esp32h2, esp32c5, esp32c6, esp32c61, esp32p4, esp32s31
++                    )),
+                     not(esp_idf_version_major = "4")
+                 ))]
+                 _frxt_setup_switch();

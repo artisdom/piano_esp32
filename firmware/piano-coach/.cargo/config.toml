@@ -1,0 +1,33 @@
+[build]
+target = "riscv32imafc-esp-espidf"
+
+[target.riscv32imafc-esp-espidf]
+linker = "ldproxy"
+# Flash with OUR bootloader + partition table: espflash's bundled P4
+# bootloader has a different memory map and does not boot on rev 1.x silicon.
+runner = "./flash.sh"
+rustflags = ["--cfg", "espidf_time64"]
+
+[unstable]
+build-std = ["std", "panic_abort"]
+
+# The [env] defaults below are the Tab5 profile, so a bare `cargo build`
+# builds for the Tab5. tools/board.sh sets these per board (Cargo's [env] does
+# not override variables already set), and build.rs cross-checks them.
+[env]
+MCU = "esp32p4"
+# v5.5: v5.4.x can place a task stack in the P4's TCM during startup
+# (espressif/esp-idf#15996).
+ESP_IDF_VERSION = "v5.5.3"
+ESP_IDF_SDKCONFIG_DEFAULTS = { value = "boards/tab5/sdkconfig.defaults", relative = true }
+ESP_IDF_SYS_EXTRA_COMPONENTS_FILE = { value = "boards/tab5/esp-idf-components.toml", relative = true }
+# Per-board generated sdkconfig: profiles must never share CMake config state.
+ESP_IDF_SDKCONFIG = { value = "sdkconfig.tab5", relative = true }
+CRATE_CC_NO_DEFAULTS = "1"
+# Copy partitions/partitions.csv into the generated ESP-IDF project.
+ESP_IDF_GLOB_PARTTABLE_BASE = { value = "partitions", relative = true }
+ESP_IDF_GLOB_PARTTABLE_CSV = "partitions.csv"
+# Reuse an existing ESP-IDF v5.5.3 + toolchain checkout instead of cloning
+# ~13 GB again. Override in the environment (e.g. ESP_IDF_TOOLS_INSTALL_DIR=
+# workspace) on a machine without it.
+ESP_IDF_TOOLS_INSTALL_DIR = "custom:/home/nws/w/rust/herdline/clients/tab5/.embuild/espressif"

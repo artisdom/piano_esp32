@@ -1,0 +1,117 @@
+diff -ruN '--exclude=.git' '--exclude=target' '--exclude=Cargo.lock' '--exclude=.cargo-ok' '--exclude=.cargo_vcs_info.json' '--exclude=Cargo.toml.orig' a/esp-idf-sys/build/native/cargo_driver/chip.rs b/esp-idf-sys/build/native/cargo_driver/chip.rs
+--- a/esp-idf-sys/build/native/cargo_driver/chip.rs	2026-08-01 13:42:51.872820574 +1200
++++ b/esp-idf-sys/build/native/cargo_driver/chip.rs	2026-08-01 11:26:47.934962441 +1200
+@@ -38,6 +38,9 @@
+     /// RISC-V based dual core
+     #[strum(serialize = "esp32p4")]
+     ESP32P4,
++    /// RISC-V based dual core (ESP-IDF preview target)
++    #[strum(serialize = "esp32s31")]
++    ESP32S31,
+ }
+ 
+ impl Chip {
+@@ -52,7 +55,9 @@
+             "riscv32imac-esp-espidf" => {
+                 &[Chip::ESP32C6, Chip::ESP32C61, Chip::ESP32C5, Chip::ESP32H2]
+             }
+-            "riscv32imafc-esp-espidf" => &[Chip::ESP32P4],
++            // S31 adds ISA extensions, but remains compatible with Rust's
++            // rv32imafc target. MCU selects the correct ESP-IDF toolchain.
++            "riscv32imafc-esp-espidf" => &[Chip::ESP32P4, Chip::ESP32S31],
+             _ => bail!("Unsupported target '{}'", rust_target_triple),
+         };
+ 
+@@ -97,7 +102,8 @@
+             | Self::ESP32C5
+             | Self::ESP32C6
+             | Self::ESP32C61
+-            | Self::ESP32P4 => "riscv32-esp-elf",
++            | Self::ESP32P4
++            | Self::ESP32S31 => "riscv32-esp-elf",
+         }
+     }
+ 
+@@ -134,7 +140,12 @@
+     pub fn ulp_gcc_toolchain(&self, version: Option<&EspIdfVersion>) -> Option<&'static str> {
+         match self {
+             Self::ESP32 => Some("esp32ulp-elf"),
+-            Self::ESP32S2 | Self::ESP32S3 | Self::ESP32C5 | Self::ESP32C6 | Self::ESP32P4 => Some(
++            Self::ESP32S2
++            | Self::ESP32S3
++            | Self::ESP32C5
++            | Self::ESP32C6
++            | Self::ESP32P4
++            | Self::ESP32S31 => Some(
+                 if version
+                     .map(|version| {
+                         version.major > 4
+diff -ruN '--exclude=.git' '--exclude=target' '--exclude=Cargo.lock' '--exclude=.cargo-ok' '--exclude=.cargo_vcs_info.json' '--exclude=Cargo.toml.orig' a/esp-idf-sys/build/native/cargo_driver/config.rs b/esp-idf-sys/build/native/cargo_driver/config.rs
+--- a/esp-idf-sys/build/native/cargo_driver/config.rs	2026-08-01 13:42:51.873325457 +1200
++++ b/esp-idf-sys/build/native/cargo_driver/config.rs	2026-08-01 11:47:12.842393720 +1200
+@@ -79,16 +79,34 @@
+         // this environment variable.
+         embuild::cargo::track_env_var(ESP_IDF_EXTRA_COMPONENTS_FILE_VAR);
+         if let Ok(val) = std::env::var(ESP_IDF_EXTRA_COMPONENTS_FILE_VAR) {
+-            let workspace = workspace_dir()?;
+             let mut components = Vec::new();
+             for file in val.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+                 // Path::join replaces the base if `file` is absolute.
+-                let path = workspace.join(file);
++                let path = workspace_dir()?.join(file);
++                embuild::cargo::track_file(&path);
++                let manifest_dir = path
++                    .parent()
++                    .ok_or_else(|| {
++                        anyhow!("extra-components file '{}' has no parent", path.display())
++                    })?
++                    .to_path_buf();
+                 let contents = std::fs::read_to_string(&path)
+                     .with_context(|| format!("failed to read '{}'", path.display()))?;
+                 let file_cfg: NativeConfig = toml::from_str(&contents)
+                     .with_context(|| format!("failed to parse '{}'", path.display()))?;
+-                components.extend(file_cfg.extra_components.unwrap_or_default());
++                components.extend(
++                    file_cfg
++                        .extra_components
++                        .unwrap_or_default()
++                        .into_iter()
++                        .map(|mut component| {
++                            // Resolve entries relative to the profile itself. Upstream
++                            // leaves this empty, which makes them depend on Cargo's
++                            // build-script working directory (often the target dir).
++                            component.manifest_dir = manifest_dir.clone();
++                            component
++                        }),
++                );
+             }
+             cfg.extra_components = Some(components);
+         }
+@@ -142,6 +160,10 @@
+                     );
+                 }
+
++                // Cargo otherwise reuses stale C libraries after BSP edits;
++                // CMake/Ninja only sees those edits when this builder runs.
++                embuild::cargo::track_file(&comp_dir);
++
+                 if comp_dir.join(CMAKELISTS_TXT).exists() {
+                     results.push(comp_dir)
+                 } else {
+diff -ruN '--exclude=.git' '--exclude=target' '--exclude=Cargo.lock' '--exclude=.cargo-ok' '--exclude=.cargo_vcs_info.json' '--exclude=Cargo.toml.orig' a/esp-idf-sys/build/native/cargo_driver.rs b/esp-idf-sys/build/native/cargo_driver.rs
+--- a/esp-idf-sys/build/native/cargo_driver.rs	2026-10-04 00:59:00.092294510 +1300
++++ b/esp-idf-sys/build/native/cargo_driver.rs	2026-10-04 00:35:53.685316817 +1300
+@@ -688,9 +688,11 @@
+ // Ditto for the partition table binary.
+ fn copy_binaries_to_target_folder() -> Result<()> {
+     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
++    // Cargo may use build/<crate>/<hash>/out rather than build/<crate-hash>/out.
++    // Find the profile's build directory instead of counting parent levels.
+     let target_dir = out_dir
+-        .parent()
+-        .and_then(Path::parent)
++        .ancestors()
++        .find(|path| path.file_name().is_some_and(|name| name == "build"))
+         .and_then(Path::parent)
+         .ok_or_else(|| anyhow!("Cannot locate target dir of {}", out_dir.display()))?
+         .canonicalize()?;

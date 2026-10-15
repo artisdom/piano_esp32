@@ -1,0 +1,11 @@
+# ESP32-S31-Korvo-1 V1.1: native components for this board.
+# Paths are relative to this file. The S31 has a native BLE controller, so
+# no radio coprocessor components are needed.
+
+# Korvo BSP (herdline's no-LVGL fork of the esp-dev-kits component):
+# 800x480 RGB sub-board + GT1151 touch, SDMMC, ES8389 codec, USB HS host,
+# ADC button ladder.
+[[extra_components]]
+component_dirs = ["../../components/esp32_s31_korvo"]
+bindings_header = "../../src/bindings.h"
+bindings_module = "bsp"

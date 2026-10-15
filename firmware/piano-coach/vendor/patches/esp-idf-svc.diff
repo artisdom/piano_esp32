@@ -1,0 +1,263 @@
+diff -ruN '--exclude=.git' '--exclude=target' '--exclude=Cargo.lock' '--exclude=.cargo-ok' '--exclude=.cargo_vcs_info.json' '--exclude=Cargo.toml.orig' a/esp-idf-svc/src/io.rs b/esp-idf-svc/src/io.rs
+--- a/esp-idf-svc/src/io.rs	2006-07-24 13:21:28.000000000 +1200
++++ b/esp-idf-svc/src/io.rs	2026-08-01 11:54:04.582097604 +1200
+@@ -7,7 +7,7 @@
+     use core::marker::PhantomData;
+ 
+     use crate::hal::uart::UartDriver;
+-    #[cfg(esp_idf_soc_usb_serial_jtag_supported)]
++    #[cfg(all(esp_idf_soc_usb_serial_jtag_supported, not(esp32s31)))]
+     use crate::hal::usb_serial::UsbSerialDriver;
+     use crate::sys::{self, EspError};
+     #[cfg(not(esp_idf_version_at_least_6_0_0))]
+@@ -22,7 +22,11 @@
+         uart_vfs_dev_use_driver as esp_vfs_dev_uart_use_driver,
+         uart_vfs_dev_use_nonblocking as esp_vfs_dev_uart_use_nonblocking,
+     };
+-    #[cfg(all(esp_idf_version_at_least_6_0_0, esp_idf_soc_usb_serial_jtag_supported))]
++    #[cfg(all(
++        esp_idf_version_at_least_6_0_0,
++        esp_idf_soc_usb_serial_jtag_supported,
++        not(esp32s31)
++    ))]
+     use crate::sys::{
+         usb_serial_jtag_vfs_use_driver as esp_vfs_usb_serial_jtag_use_driver,
+         usb_serial_jtag_vfs_use_nonblocking as esp_vfs_usb_serial_jtag_use_nonblocking,
+@@ -130,6 +134,7 @@
+ 
+             let mut handle = core::ptr::null_mut();
+ 
++            #[cfg(not(esp_idf_version_at_least_6_2_0))]
+             sys::esp!(unsafe {
+                 sys::esp_vfs_fat_register(
+                     path.as_ptr(),
+@@ -139,6 +144,18 @@
+                 )
+             })?;
+ 
++            #[cfg(esp_idf_version_at_least_6_2_0)]
++            sys::esp!(unsafe {
++                sys::esp_vfs_fat_register(
++                    &sys::esp_vfs_fat_conf_t {
++                        base_path: path.as_ptr(),
++                        fat_drive: drive_path.as_ptr(),
++                        max_files: max_fds,
++                    },
++                    &mut handle,
++                )
++            })?;
++
+             unsafe {
+                 sys::f_mount(handle, drive_path.as_ptr(), 0); // TODO
+             }
+@@ -316,7 +333,7 @@
+         }
+     }
+ 
+-    #[cfg(esp_idf_soc_usb_serial_jtag_supported)]
++    #[cfg(all(esp_idf_soc_usb_serial_jtag_supported, not(esp32s31)))]
+     impl<'d, T> BlockingStdIo<'d, T>
+     where
+         T: BorrowMut<UsbSerialDriver<'d>>,
+@@ -352,7 +369,7 @@
+             if let Some(port) = self.uart_port {
+                 unsafe { esp_vfs_dev_uart_use_nonblocking(port as _) }
+             } else {
+-                #[cfg(esp_idf_soc_usb_serial_jtag_supported)]
++                #[cfg(all(esp_idf_soc_usb_serial_jtag_supported, not(esp32s31)))]
+                 {
+                     unsafe { esp_vfs_usb_serial_jtag_use_nonblocking() }
+                 }
+diff -ruN '--exclude=.git' '--exclude=target' '--exclude=Cargo.lock' '--exclude=.cargo-ok' '--exclude=.cargo_vcs_info.json' '--exclude=Cargo.toml.orig' a/esp-idf-svc/src/log.rs b/esp-idf-svc/src/log.rs
+--- a/esp-idf-svc/src/log.rs	2006-07-24 13:21:28.000000000 +1200
++++ b/esp-idf-svc/src/log.rs	2026-08-01 11:54:04.580097591 +1200
+@@ -24,35 +24,52 @@
+ 
+ impl EspStdout {
+     fn new() -> Self {
+-        let stdout = unsafe { __getreent().as_mut() }.unwrap()._stdout;
++        #[cfg(not(esp_idf_libc_picolibc))]
++        let stream = unsafe { __getreent().as_mut() }.unwrap()._stdout;
++        #[cfg(esp_idf_libc_picolibc)]
++        let stream = unsafe { stdout };
+ 
+-        let file = unsafe { stdout.as_mut() }.unwrap();
++        #[cfg(not(esp_idf_libc_picolibc))]
++        let file = unsafe { stream.as_mut() }.unwrap();
+ 
+         // Copied from here:
+         // https://github.com/bminor/newlib/blob/master/newlib/libc/stdio/local.h#L80
+         // https://github.com/bminor/newlib/blob/3bafe2fae7a0878598a82777c623edb2faa70b74/newlib/libc/include/sys/stdio.h#L13
++        #[cfg(not(esp_idf_libc_picolibc))]
+         if (file._flags2 & __SNLK as i32) == 0 && (file._flags & __SSTR as i16) == 0 {
+             unsafe {
+                 _lock_acquire_recursive(&mut file._lock);
+             }
+         }
+ 
+-        Self(stdout)
++        #[cfg(esp_idf_libc_picolibc)]
++        unsafe {
++            flockfile(stream);
++        }
++
++        Self(stream)
+     }
+ }
+ 
+ impl Drop for EspStdout {
+     fn drop(&mut self) {
++        #[cfg(not(esp_idf_libc_picolibc))]
+         let file = unsafe { self.0.as_mut() }.unwrap();
+ 
+         // Copied from here:
+         // https://github.com/bminor/newlib/blob/master/newlib/libc/stdio/local.h#L85
+         // https://github.com/bminor/newlib/blob/3bafe2fae7a0878598a82777c623edb2faa70b74/newlib/libc/include/sys/stdio.h#L21
++        #[cfg(not(esp_idf_libc_picolibc))]
+         if (file._flags2 & __SNLK as i32) == 0 && (file._flags & __SSTR as i16) == 0 {
+             unsafe {
+                 _lock_release_recursive(&mut file._lock);
+             }
+         }
++
++        #[cfg(esp_idf_libc_picolibc)]
++        unsafe {
++            funlockfile(self.0);
++        }
+     }
+ }
+ 
+@@ -351,15 +368,15 @@
+             let args = record.args();
+             let color = Self::get_color(record.level());
+ 
+-            let mut stdout = EspStdout::new();
++            let mut output = EspStdout::new();
+ 
+             if let Some(color) = color {
+-                write!(stdout, "\x1b[0;{color}m").unwrap();
++                write!(output, "\x1b[0;{color}m").unwrap();
+             }
+-            write!(stdout, "{marker} (").unwrap();
++            write!(output, "{marker} (").unwrap();
+             if cfg!(esp_idf_log_timestamp_source_rtos) {
+                 let timestamp = unsafe { esp_log_timestamp() };
+-                write!(stdout, "{timestamp}").unwrap();
++                write!(output, "{timestamp}").unwrap();
+             } else if cfg!(esp_idf_log_timestamp_source_system) {
+                 // TODO: https://github.com/esp-rs/esp-idf-svc/pull/494 - official usage of
+                 // `esp_log_timestamp_str()` should be tracked and replace the not thread-safe
+@@ -367,13 +384,13 @@
+                 // returning a pointer to a static buffer containing the c-string.
+                 let timestamp =
+                     unsafe { CStr::from_ptr(esp_log_system_timestamp()).to_str().unwrap() };
+-                write!(stdout, "{timestamp}").unwrap();
++                write!(output, "{timestamp}").unwrap();
+             }
+-            write!(stdout, ") {target}: {args}").unwrap();
++            write!(output, ") {target}: {args}").unwrap();
+             if color.is_some() {
+-                write!(stdout, "\x1b[0m").unwrap();
++                write!(output, "\x1b[0m").unwrap();
+             }
+-            writeln!(stdout).unwrap();
++            writeln!(output).unwrap();
+         }
+     }
+ 
+diff -ruN '--exclude=.git' '--exclude=target' '--exclude=Cargo.lock' '--exclude=.cargo-ok' '--exclude=.cargo_vcs_info.json' '--exclude=Cargo.toml.orig' a/esp-idf-svc/src/netif.rs b/esp-idf-svc/src/netif.rs
+--- a/esp-idf-svc/src/netif.rs	2006-07-24 13:21:28.000000000 +1200
++++ b/esp-idf-svc/src/netif.rs	2026-08-01 12:34:13.301312694 +1200
+@@ -363,6 +363,7 @@
+                     route_prio: conf.route_priority as _,
+                     #[cfg(not(esp_idf_version_major = "4"))]
+                     bridge_info: ptr::null_mut(),
++                    ..Default::default()
+                 },
+                 match ip_conf {
+                     ipv4::ClientConfiguration::DHCP(_) => None,
+@@ -404,6 +405,7 @@
+                     route_prio: conf.route_priority as _,
+                     #[cfg(not(esp_idf_version_major = "4"))]
+                     bridge_info: ptr::null_mut(),
++                    ..Default::default()
+                 },
+                 Some(esp_netif_ip_info_t {
+                     ip: Newtype::<esp_ip4_addr_t>::from(ip_conf.subnet.gateway).0,
+@@ -427,6 +429,7 @@
+                     route_prio: conf.route_priority as _,
+                     #[cfg(not(esp_idf_version_major = "4"))]
+                     bridge_info: ptr::null_mut(),
++                    ..Default::default()
+                 },
+                 None,
+                 false,
+@@ -1010,7 +1013,7 @@
+         ///   into the underlying transport
+         /// - `EsNetifDriver::rx`, which should be called by the transport when a new packet
+         ///   has arrived that has to be ingested in the driver
+-        ///   
++        ///
+         /// The transport can be anything, but with - say - PPP netif - it would typically be UART,
+         /// and the `tx` callback implementation is simply expected to write the PPP packet into UART.
+         ///
+@@ -1065,7 +1068,7 @@
+         ///   into the underlying transport
+         /// - `EsNetifDriver::rx`, which should be called by the transport when a new packet
+         ///   has arrived that has to be ingested in the driver
+-        ///   
++        ///
+         /// The transport can be anything, but with - say - PPP netif - it would typically be UART,
+         /// and the `tx` callback implementation is simply expected to write the PPP packet into UART.
+         ///
+@@ -1470,7 +1473,7 @@
+         /// Set our preferred address, typically used when we're the PPP server
+         #[cfg(esp_idf_lwip_ppp_server_support)]
+         our_ip4_addr: core::net::Ipv4Addr,
+-        /// Set our preferred address, typically used when we're the PPP server        
++        /// Set our preferred address, typically used when we're the PPP server
+         #[cfg(esp_idf_lwip_ppp_server_support)]
+         their_ip4_addr: core::net::Ipv4Addr,
+     }
+diff -ruN '--exclude=.git' '--exclude=target' '--exclude=Cargo.lock' '--exclude=.cargo-ok' '--exclude=.cargo_vcs_info.json' '--exclude=Cargo.toml.orig' a/esp-idf-svc/src/private/stubs.rs b/esp-idf-svc/src/private/stubs.rs
+--- a/esp-idf-svc/src/private/stubs.rs	2006-07-24 13:21:28.000000000 +1200
++++ b/esp-idf-svc/src/private/stubs.rs	2026-10-04 00:26:21.269975357 +1300
+@@ -1,6 +1,9 @@
+ use core::ffi;
+
+ // TODO: Figure out which library references this
++// ESP-IDF 6.2's picolibc supplies timegm; defining the fallback there makes
++// a full application link fail with a duplicate symbol.
++#[cfg(not(esp_idf_version_at_least_6_2_0))]
+ #[no_mangle]
+ pub extern "C" fn timegm(_: ffi::c_void) -> ffi::c_int {
+     // Not supported but don't crash just in case
+diff -ruN '--exclude=.git' '--exclude=target' '--exclude=Cargo.lock' '--exclude=.cargo-ok' '--exclude=.cargo_vcs_info.json' '--exclude=Cargo.toml.orig' a/esp-idf-svc/src/wifi.rs b/esp-idf-svc/src/wifi.rs
+--- a/esp-idf-svc/src/wifi.rs	2006-07-24 13:21:28.000000000 +1200
++++ b/esp-idf-svc/src/wifi.rs	2026-08-01 11:50:38.484750590 +1200
+@@ -567,6 +567,14 @@
+             nano_enable: WIFI_NANO_FORMAT_ENABLED as _,
+             rx_ba_win: WIFI_DEFAULT_RX_BA_WIN as _,
+             wifi_task_core_id: WIFI_TASK_CORE_ID as _,
++            // IDF 6.2 added this to WIFI_INIT_CONFIG_DEFAULT. Leaving it at
++            // the zero from Default makes Wi-Fi task creation fail with NO_MEM.
++            #[cfg(esp_idf_version_at_least_6_2_0)]
++            wifi_task_stack_size: WIFI_TASK_STACK_SIZE as _,
++            #[cfg(esp_idf_version_at_least_6_2_0)]
++            privacy_enhancements: WIFI_PRIVACY_ENHANCEMENTS_ENABLED != 0,
++            #[cfg(esp_idf_version_at_least_6_2_0)]
++            rmac_auto_reset_int: WIFI_RMAC_AUTO_RESET_INTERVAL as _,
+             beacon_max_len: WIFI_SOFTAP_BEACON_MAX_LEN as _,
+             mgmt_sbuf_num: WIFI_MGMT_SBUF_NUM as _,
+             #[cfg(any(
+@@ -1182,7 +1190,10 @@
+         }
+ 
+         esp!(unsafe { esp_wifi_wps_enable(&config.0 as *const _) })?;
++        #[cfg(not(esp_idf_version_at_least_6_2_0))]
+         esp!(unsafe { esp_wifi_wps_start(0) })?;
++        #[cfg(esp_idf_version_at_least_6_2_0)]
++        esp!(unsafe { esp_wifi_wps_start() })?;
+ 
+         self.status.lock().wps = None;
+ 

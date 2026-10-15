@@ -1,0 +1,18 @@
+# M5Stack Tab5 (ESP32-P4): native components for this board.
+# Paths are relative to this file.
+
+# Display/touch/IO expanders/SD/USB host/audio BSP without LVGL, vendored
+# from herdline (ST7123 sleep-out delay fix; probes ST7123 vs ILI9881C).
+[[extra_components]]
+component_dirs = ["../../components/m5stack_tab5_noglib"]
+bindings_header = "../../src/bindings.h"
+bindings_module = "bsp"
+
+# Bluetooth LE goes through the ESP32-C6 coprocessor: NimBLE host here,
+# controller on the C6 over SDIO via ESP-Hosted (esp_wifi_remote is its
+# required companion component).
+[[extra_components]]
+remote_component = { name = "espressif/esp_wifi_remote", version = "~1.6" }
+
+[[extra_components]]
+remote_component = { name = "espressif/esp_hosted", version = "~2.12" }

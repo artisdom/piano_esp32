@@ -1,0 +1,77 @@
+# Piano Coach — play & learn firmware for the GZUT 88-key LED piano, on
+# several ESP32 dev boards. One board is selected per build by a Cargo
+# feature (see `tools/board.sh` and boards/README.md); the board-specific
+# code lives under src/board/<board>/.
+[workspace]
+
+[package]
+name = "piano-coach"
+version = "0.2.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[[bin]]
+name = "piano-coach"
+harness = false # no test harness on the espidf target; logic is tested in piano-core
+
+[profile.release]
+opt-level = "s"
+lto = "thin"
+
+# Hot code at full speed: "s" left the globe painter, the synth and Slint's
+# software renderer un-inlined (globe paint 77 ms/frame at "s"). The image
+# has room (12 MB partition).
+[profile.release.package.piano-core]
+opt-level = 3
+[profile.release.package.piano-coach]
+opt-level = 3
+[profile.release.package.i-slint-renderer-software]
+opt-level = 3
+[profile.release.package.i-slint-core]
+opt-level = 3
+
+[profile.dev]
+debug = true
+opt-level = "z"
+
+[dependencies]
+log = "0.4"
+anyhow = "1"
+esp-idf-svc = "0.52" # esp-idf-hal 0.46 / esp-idf-sys 0.37: first with ESP32-P4 + IDF 5.5
+piano-core = { path = "../piano-core" }
+# Software renderer only: we provide the platform (DPI framebuffer + touch).
+# No `std` feature (its font stack needs mmap); glyphs are pre-embedded by
+# slint-build. The UI is only touched from the UI thread.
+slint = { version = "=1.18.1", default-features = false, features = [
+    "compat-1-2",
+    "renderer-software",
+    "unsafe-single-threaded",
+    "libm",
+] }
+
+[build-dependencies]
+embuild = "0.33.3"
+# One signed-distance-field raster per glyph instead of one per size: the
+# ~4300-glyph CJK set would not fit otherwise.
+slint-build = { version = "=1.18.1", features = ["sdf-fonts"] }
+
+[features]
+default = ["board-tab5"]
+# Exactly one board. build.rs checks that, and that $MCU matches it; use
+# tools/board.sh, which sets feature, MCU, ESP-IDF and profile together.
+# Board features stay empty: what a board can do is declared in its module
+# (src/board/<board>/mod.rs, `CAPS`), not through Cargo features.
+board-tab5 = []
+board-korvo = []
+
+# Each board's native components (BSP etc.) are listed in
+# boards/<board>/esp-idf-components.toml, selected through
+# ESP_IDF_SYS_EXTRA_COMPONENTS_FILE.
+
+# ESP32-S31 support is not in any esp-rs release yet: source-pinned copies
+# with the S31 changes (from the herdline project), used for every board so
+# all builds share one esp-rs version. See vendor/README.md.
+[patch.crates-io]
+esp-idf-sys = { path = "vendor/esp-idf-sys" }
+esp-idf-hal = { path = "vendor/esp-idf-hal" }
+esp-idf-svc = { path = "vendor/esp-idf-svc" }
