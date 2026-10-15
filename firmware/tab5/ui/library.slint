@@ -1,7 +1,6 @@
-import { ListView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 import { Icon } from "icons.slint";
-import { Button, Card } from "widgets.slint";
+import { Button, Card, WideScroll } from "widgets.slint";
 import { LibraryVM, LibEntry, SettingsVM } from "state.slint";
 import { SearchKeyboard } from "keyboard.slint";
 
@@ -156,14 +155,15 @@ export component LibraryPage inherits Rectangle {
                         }
                     }
                 }
-                if !LibraryVM.searching && LibraryVM.entries.length > 0: ListView {
+                if !LibraryVM.searching && LibraryVM.entries.length > 0: WideScroll {
+                    vertical-stretch: 1;
                     for e[i] in LibraryVM.entries: Row {
                         entry: e;
                         selected: i == LibraryVM.selected;
                         clicked => { LibraryVM.open(i); }
                     }
                 }
-                if LibraryVM.searching: ListView {
+                if LibraryVM.searching: WideScroll {
                     vertical-stretch: 1;
                     for e[i] in LibraryVM.results: Row {
                         entry: e;

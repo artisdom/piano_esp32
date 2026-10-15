@@ -217,3 +217,69 @@ export component Chip inherits Rectangle {
         }
     }
 }
+
+// Touch drags reach Slint amplified by this factor from the press point
+// (src/ui.rs SCROLL_GAIN), which makes flick-scrolling lists fast. Controls
+// that track the finger 1:1 (the scrollbar thumb) divide it back out.
+export global Touch {
+    out property <float> drag-gain: 2.0;
+}
+
+// Scrollable column with a wide, finger-sized scrollbar on the right. Drag
+// the thumb, or tap anywhere on the track to jump there; the list itself
+// still flick-scrolls. Children are laid out top to bottom.
+export component WideScroll inherits Rectangle {
+    in property <length> bar-width: 34px;
+    in property <length> spacing: 2px;
+    property <length> track-h: self.height;
+    property <length> range: max(0px, fl.content-height - fl.height);
+    property <length> thumb-h: fl.content-height <= fl.height ? self.height
+        : max(64px, self.height * fl.height / fl.content-height);
+    property <length> press-y;
+
+    function scroll-to(thumb-top: length) {
+        fl.content-y = -max(0px, min(root.range,
+            (thumb-top / max(1px, root.track-h - root.thumb-h)) * root.range));
+    }
+
+    fl := Flickable {
+        x: 0;
+        width: root.range > 0 ? parent.width - root.bar-width - 10px : parent.width;
+        height: parent.height;
+        content-width: self.width;
+        content-height: col.preferred-height;
+        col := VerticalLayout {
+            width: fl.width;
+            spacing: root.spacing;
+            @children
+        }
+    }
+    if root.range > 0: Rectangle {
+        x: parent.width - root.bar-width;
+        width: root.bar-width;
+        height: parent.height;
+        border-radius: self.width / 2;
+        background: Theme.surface2;
+        Rectangle {
+            x: 4px;
+            width: parent.width - 8px;
+            height: root.thumb-h - 8px;
+            y: 4px + (-fl.content-y / root.range) * (root.track-h - root.thumb-h);
+            border-radius: self.width / 2;
+            background: ta.pressed ? Theme.accent : Theme.faint;
+            animate background { duration: 120ms; }
+        }
+        ta := TouchArea {
+            pointer-event(e) => {
+                if e.kind == PointerEventKind.down {
+                    root.press-y = self.mouse-y;
+                    root.scroll-to(self.mouse-y - root.thumb-h / 2);
+                }
+            }
+            moved => {
+                // Undo the touch drag gain so the thumb stays under the finger.
+                root.scroll-to(root.press-y + (self.mouse-y - root.press-y) / Touch.drag-gain - root.thumb-h / 2);
+            }
+        }
+    }
+}

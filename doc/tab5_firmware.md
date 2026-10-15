@@ -19,7 +19,8 @@ Sources: `firmware/tab5` (device crate) and `firmware/piano-core`
    port, or choose **Settings → Connect via → Bluetooth** (the Tab5
    restarts and connects to `GZUT-MIDI` automatically). The top-right chip
    turns green when connected.
-3. **Library**: tap folders to browse, tap a song to load it (duration,
+3. **Library**: lists scroll by flicking or with the wide scrollbar on
+   the right (drag the thumb, or tap the track to jump). Tap folders to browse, tap a song to load it (duration,
    tempo, notes per hand are shown), then **Learn**, **Follow** or
    **Listen**. **Search** (top right of the list) finds a song anywhere on
    the card from the full-width on-screen letter keyboard (~80×66 px keys; the

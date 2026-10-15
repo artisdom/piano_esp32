@@ -36,6 +36,8 @@ const ROLL_H: f32 = 300.0;
 /// Song milliseconds visible above the "now" line.
 const LOOKAHEAD_MS: f32 = 2600.0;
 const NOW_LINE: f32 = ROLL_H - 22.0;
+/// Drag amplification from the press point (lists scroll faster than the
+/// finger). Must match `Touch.drag-gain` in ui/widgets.slint.
 const SCROLL_GAIN: f32 = 2.0;
 
 struct EmbeddedPlatform {
