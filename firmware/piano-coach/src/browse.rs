@@ -5,8 +5,8 @@
 //!
 //! Also the moves the piano-key controls need (piano_core::controls):
 //! next / previous song in a folder, next / previous folder that holds
-//! songs (depth-first, library order, wrapping), a random song, and the
-//! song a board starts with.
+//! songs (depth-first, library order, wrapping), a random song, the song a
+//! board starts with, and shuffle-play of a folder ([`FolderShuffle`]).
 
 // Each UI class uses its own subset (the full UI keeps its own library
 // list and uses only the navigation part).
@@ -14,7 +14,10 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
+use std::time::{Duration, Instant};
 
+use piano_core::controls::Shuffle;
+use piano_core::engine::State;
 use piano_core::library;
 use piano_core::search::{Index, SongRef};
 use piano_core::songpack::Pack;
@@ -263,4 +266,105 @@ pub const START_FOLDER: &str = "儿时回忆";
 pub fn start_song(root: &Path) -> Option<PathBuf> {
     let dir = find_folder(root, START_FOLDER).or_else(|| edge_folder(root, 1, 0))?;
     random_song(&dir)
+}
+
+/// Pause after a song ends before the next shuffled one starts.
+const SHUFFLE_GAP: Duration = Duration::from_millis(2500);
+
+/// What shuffle-play wants after a [`FolderShuffle::tick`].
+pub enum ShuffleEvent {
+    Idle,
+    /// Load and start this song (library path).
+    Next(PathBuf),
+    /// Every song of the folder has been played.
+    Done,
+    /// Another song was loaded meanwhile: shuffle-play is over.
+    Overridden,
+}
+
+/// Shuffle-play of one folder: every song once, in random order, the next
+/// one starting [`SHUFFLE_GAP`] after the last ended. The UI loads the
+/// songs; this only decides which and when, watching the player.
+pub struct FolderShuffle {
+    pub dir: PathBuf,
+    order: Shuffle,
+    /// Playable path of the song asked for, and whether the player has it.
+    expected: PathBuf,
+    confirmed: bool,
+    /// It has played since (a Finished before that is the previous song's).
+    armed: bool,
+    finished_at: Option<Instant>,
+}
+
+impl FolderShuffle {
+    /// Shuffle `dir`; `current` (a library path) plays first if it is one
+    /// of its songs. None if the folder has no songs.
+    pub fn start(dir: &Path, current: Option<&Path>) -> Option<FolderShuffle> {
+        let songs = list_dir(dir).1;
+        if songs.is_empty() {
+            return None;
+        }
+        let first = current
+            .filter(|p| p.parent() == Some(dir))
+            .and_then(|p| p.file_name())
+            .map(|n| n.to_string_lossy().into_owned());
+        let seed = unsafe { (esp_idf_svc::sys::esp_random() as u64) << 32 | esp_idf_svc::sys::esp_random() as u64 };
+        let order = Shuffle::new(songs, first.as_deref(), seed);
+        let cur = dir.join(order.current()?);
+        Some(FolderShuffle {
+            dir: dir.to_path_buf(),
+            expected: playable(&cur),
+            confirmed: false,
+            armed: false,
+            finished_at: None,
+            order,
+        })
+    }
+
+    /// The song shuffle-play is on (library path).
+    pub fn current(&self) -> Option<PathBuf> {
+        self.order.current().map(|n| self.dir.join(n))
+    }
+
+    /// (songs started so far, songs in the folder).
+    pub fn progress(&self) -> (usize, usize) {
+        (self.order.played(), self.order.len())
+    }
+
+    /// Skip `d` songs (B0 / A0); the song to load, None past the last.
+    pub fn skip(&mut self, d: isize) -> Option<PathBuf> {
+        let p = self.dir.join(self.order.step(d)?);
+        self.expected = playable(&p);
+        self.confirmed = false;
+        self.armed = false;
+        self.finished_at = None;
+        Some(p)
+    }
+
+    /// Call every UI loop with the player's state and loaded (playable)
+    /// path.
+    pub fn tick(&mut self, state: State, loaded: Option<&Path>) -> ShuffleEvent {
+        if loaded == Some(self.expected.as_path()) {
+            self.confirmed = true;
+        } else {
+            return if self.confirmed { ShuffleEvent::Overridden } else { ShuffleEvent::Idle };
+        }
+        match state {
+            State::Playing | State::Waiting => {
+                self.armed = true;
+                self.finished_at = None;
+                ShuffleEvent::Idle
+            }
+            State::Finished if self.armed => {
+                if self.finished_at.get_or_insert_with(Instant::now).elapsed() < SHUFFLE_GAP {
+                    return ShuffleEvent::Idle;
+                }
+                match self.skip(1) {
+                    Some(p) => ShuffleEvent::Next(p),
+                    None => ShuffleEvent::Done,
+                }
+            }
+            _ => ShuffleEvent::Idle,
+        }
+    }
 }

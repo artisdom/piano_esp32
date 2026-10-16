@@ -145,6 +145,7 @@ work as buttons — no screen or phone needed:
 | **E1** | previous folder, random song | **C8** | bookmark the song (Tab5 / Korvo) |
 | **F1** | next folder, random song | | |
 | **G1** | random song in this folder | | |
+| **G#1** | shuffle-play this folder (on / off) | | |
 
 A control key works whenever nothing is playing, and during a song only if
 that song never uses the key, so a real note is never taken for a command
@@ -153,6 +154,16 @@ and the screen, if any, shows what it did; song changes open the Play
 page (small boards: the play screen). "Folders" are the folders that hold
 songs, in library order (e.g. 儿时回忆 → 红色歌谣 → … → the next artist
 folder), wrapping around at the end. The map is `piano_core::controls`.
+
+**Shuffle-play** (G#1, or the phone page's 🔀 button on headless boards)
+plays every song of the current folder once, in random order, one after
+another — the song playing when you switch it on comes first, and each
+next one starts about 2.5 s after the last ends (in Learn, when you finish
+it). While it is on, B0 / A0 skip forward / back in that order and E1 /
+F1 shuffle the next / previous folder instead. It ends when every song has
+played, on G#1 again, or when you pick a song any other way (G1, the
+screen, the phone page). Toasts show "Shuffle 3 / 41"; the phone page
+shows it next to the play state.
 
 ## Small boards (minimal UI)
 
@@ -504,7 +515,9 @@ piano-core: smf · song · engine · usbmidi · blemidi · library · search ·
   screen; headless: the `Coach`); song and folder moves are shared in
   `browse.rs`, which sees the card or the song pack as one folder tree
   (next / previous song, depth-first next / previous folder holding
-  songs, random song, the 儿时回忆 boot song). Every board boots with
+  songs, random song, the 儿时回忆 boot song, and `FolderShuffle`, which
+  watches the player's state and loaded song to start the next shuffled
+  one and notices when another song was loaded). Every board boots with
   `player::boot_options()` (the saved options in Follow) and starts the
   boot song when the piano connects.
 * **USB and BLE together** (`dual.rs`, YD-ESP32-S3): both transports
@@ -640,7 +653,8 @@ from a PC (song pack: 2449 songs, 9.1 MB) ✔; app 2.5 MB of 4 MB.
 Piano-key remote (Tab5 over Bluetooth): boots into Follow with a random
 儿时回忆 song that starts when the piano connects; every control key
 (songs, folders, random, play/pause, restart, tempo, modes, hands,
-bookmark) does what the table says ✔. The other boards build with it; on
+bookmark) does what the table says ✔; shuffle-play (G#1): starts with the
+playing song, B0 skips, the next song starts by itself after one ends ✔. The other boards build with it; on
 the small and headless boards it is not yet tried on hardware.
 
 ## Known limits / ideas

@@ -155,7 +155,7 @@ fn state_json(coach: &SharedCoach) -> String {
          \"state\":\"{state}\",\"pos\":{},\"dur\":{},\"posText\":{},\"durText\":{},\
          \"mode\":\"{mode}\",\"hands\":\"{hands}\",\"tempo\":{},\"speaker\":{},\"volume\":{},\"sound\":{},\
          \"stats\":{{\"acc\":{},\"done\":{},\"total\":{},\"hits\":{},\"streak\":{}}},\"prompt\":{},\
-         \"playlist\":{{\"dir\":{},\"index\":{},\"count\":{}}},\"indexed\":{indexed},\"card\":{}}}",
+         \"playlist\":{{\"dir\":{},\"index\":{},\"count\":{}}},\"indexed\":{indexed},\"card\":{},\"shuffle\":{}}}",
         esc(&piano),
         c.sd_ok,
         song.unwrap_or_else(|| "null".into()),
@@ -177,7 +177,11 @@ fn state_json(coach: &SharedCoach) -> String {
         esc(&c.rel(&c.dir)),
         c.index,
         c.playlist.len(),
-        cfg!(has_sd)
+        cfg!(has_sd),
+        c.shuffle
+            .as_ref()
+            .map(|sh| format!("{{\"played\":{},\"count\":{}}}", sh.progress().0, sh.progress().1))
+            .unwrap_or_else(|| "null".into())
     )
 }
 
@@ -266,6 +270,13 @@ fn command(coach: &SharedCoach, c: &str, v: Option<String>) -> bool {
             Some(s) => co.set_sound(s.clamp(0, 2) as u8),
             None => return false,
         },
+        "shuffle" => {
+            if co.shuffle.is_some() {
+                co.shuffle = None;
+            } else {
+                co.shuffle_on();
+            }
+        }
         "ledtest" => co.led_test(),
         "alloff" => co.all_off(),
         _ => return false,

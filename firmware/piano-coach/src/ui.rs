@@ -659,6 +659,8 @@ pub fn run(ctx: Ctx) -> anyhow::Result<()> {
     // Every boot: a random song from 儿时回忆 in Follow, started once the
     // piano is connected.
     let mut autostart = false;
+    // Shuffle-play of a folder (G#1), if on.
+    let mut shuffle: Option<browse::FolderShuffle> = None;
     if ctx.sd_ok {
         let root = lib.borrow().root.clone();
         if let Some(p) = browse::start_song(&root) {
@@ -1016,7 +1018,53 @@ pub fn run(ctx: Ctx) -> anyhow::Result<()> {
         while let Ok(c) = ctx.controls.try_recv() {
             let current = sel_path.borrow().clone();
             let root = lib.borrow().root.clone();
-            let next = match c {
+            let playing = matches!(ctx.shared.lock().unwrap().state, State::Playing | State::Waiting);
+            // Shuffle-play claims the song and folder keys while it is on.
+            let mut msg = controls::label(c).to_string();
+            let next = match (c, shuffle.as_mut()) {
+                (Control::ShuffleFolder, Some(_)) => {
+                    shuffle = None;
+                    msg = "Shuffle off".into();
+                    None
+                }
+                (Control::ShuffleFolder, None) => {
+                    let dir = current.as_deref().and_then(|p| p.parent()).map(|d| d.to_path_buf());
+                    shuffle = dir.and_then(|d| browse::FolderShuffle::start(&d, current.as_deref()));
+                    match shuffle.as_ref() {
+                        Some(sh) => {
+                            let title = folder_title(&sh.dir.join("x"));
+                            msg = format!("Shuffle {title}: {} songs", sh.progress().1);
+                            // Keep the song playing if it is the first one.
+                            if sh.current() != current || !playing {
+                                sh.current()
+                            } else {
+                                None
+                            }
+                        }
+                        None => {
+                            msg = "No songs to shuffle here".into();
+                            None
+                        }
+                    }
+                }
+                (Control::PrevSong | Control::NextSong, Some(sh)) => {
+                    let n = sh.skip(if c == Control::NextSong { 1 } else { -1 });
+                    if n.is_none() {
+                        shuffle = None;
+                        msg = "Shuffle: folder done".into();
+                    }
+                    n
+                }
+                (Control::PrevFolder | Control::NextFolder, Some(_)) => {
+                    let d = if c == Control::NextFolder { 1 } else { -1 };
+                    let dir = current.as_deref().and_then(|p| browse::folder_step(&root, p.parent()?, d));
+                    shuffle = dir.and_then(|d| browse::FolderShuffle::start(&d, None));
+                    shuffle.as_ref().and_then(|sh| {
+                        msg = format!("Shuffle {}: {} songs", folder_title(&sh.dir.join("x")), sh.progress().1);
+                        sh.current()
+                    })
+                }
+                _ => match c {
                 Control::PrevSong | Control::NextSong => current
                     .as_deref()
                     .and_then(|p| browse::song_step(p, if c == Control::NextSong { 1 } else { -1 })),
@@ -1026,6 +1074,7 @@ pub fn run(ctx: Ctx) -> anyhow::Result<()> {
                 }),
                 Control::RandomSong => current.as_deref().and_then(|p| browse::random_song(p.parent()?)),
                 _ => None,
+                },
             };
             let p = ui.global::<PlayerVM>();
             match c {
@@ -1070,7 +1119,29 @@ pub fn run(ctx: Ctx) -> anyhow::Result<()> {
                 open_song(path, true);
             }
             if c != Control::Bookmark {
-                show_toast(controls::label(c));
+                show_toast(&msg);
+            }
+        }
+        if let Some(sh) = shuffle.as_mut() {
+            let (state, loaded) = {
+                let s = ctx.shared.lock().unwrap();
+                (s.state, s.path.clone())
+            };
+            match sh.tick(state, loaded.as_deref()) {
+                browse::ShuffleEvent::Idle => {}
+                browse::ShuffleEvent::Next(p) => {
+                    let (n, total) = sh.progress();
+                    show_toast(&format!("Shuffle {n} / {total}"));
+                    open_song(p, true);
+                }
+                browse::ShuffleEvent::Done => {
+                    show_toast("Shuffle: folder done");
+                    shuffle = None;
+                }
+                browse::ShuffleEvent::Overridden => {
+                    show_toast("Shuffle off");
+                    shuffle = None;
+                }
             }
         }
 

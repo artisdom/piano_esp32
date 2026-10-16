@@ -250,6 +250,8 @@ struct App {
     opts: Options,
     brightness: i32,
     playing: Option<u32>,
+    /// Shuffle-play of a folder (G#1), if on.
+    shuffle: Option<browse::FolderShuffle>,
     cmds: Sender<Cmd>,
 }
 
@@ -530,6 +532,7 @@ pub fn run(ctx: Ctx) -> anyhow::Result<()> {
         opts: player::boot_options(),
         brightness,
         playing: None,
+        shuffle: None,
         cmds: ctx.cmds.clone(),
     };
     app.build();
@@ -616,11 +619,37 @@ pub fn run(ctx: Ctx) -> anyhow::Result<()> {
             });
         }
         while let Ok(c) = ctx.controls.try_recv() {
-            if control(c, &mut app, &ctx) {
+            let (start, msg) = control(c, &mut app, &ctx);
+            if start {
                 on_play = true;
                 started = true;
             }
-            show_toast(&vm, &mut toast_until, controls::label(c).into());
+            show_toast(&vm, &mut toast_until, msg);
+        }
+        if let Some(sh) = app.shuffle.as_mut() {
+            let (state, loaded) = {
+                let s = ctx.shared.lock().unwrap();
+                (s.state, s.path.clone())
+            };
+            match sh.tick(state, loaded.as_deref()) {
+                browse::ShuffleEvent::Idle => {}
+                browse::ShuffleEvent::Next(p) => {
+                    let (n, total) = sh.progress();
+                    if play_song(&mut app, &ctx, &p) {
+                        on_play = true;
+                        started = true;
+                    }
+                    show_toast(&vm, &mut toast_until, format!("Shuffle {n} / {total}"));
+                }
+                browse::ShuffleEvent::Done => {
+                    app.shuffle = None;
+                    show_toast(&vm, &mut toast_until, "Shuffle: folder done".into());
+                }
+                browse::ShuffleEvent::Overridden => {
+                    app.shuffle = None;
+                    show_toast(&vm, &mut toast_until, "Shuffle off".into());
+                }
+            }
         }
         if board::CAPS.touch {
             if let Some(g) = gesture.feed(board::touch_point()) {
@@ -837,31 +866,90 @@ fn show_toast(vm: &MiniVM, until: &mut Option<Instant>, text: String) {
     *until = Some(Instant::now() + Duration::from_millis(2200));
 }
 
-/// A piano-key control. True if it started a song (open the play screen).
-fn control(c: Control, app: &mut App, ctx: &Ctx) -> bool {
+/// Load and start a pack song by library path. False if it is not one.
+fn play_song(app: &mut App, ctx: &Ctx, path: &std::path::Path) -> bool {
+    let Some(s) = browse::pack_entry(path) else { return false };
+    let _ = ctx.cmds.send(Cmd::SetOptions(app.opts));
+    let _ = ctx.cmds.send(Cmd::Load(songs::pack_path(s)));
+    let _ = ctx.cmds.send(Cmd::Restart);
+    app.playing = Some(s);
+    true
+}
+
+/// A piano-key control: whether it started a song (open the play screen)
+/// and what to show.
+fn control(c: Control, app: &mut App, ctx: &Ctx) -> (bool, String) {
     let current = app.playing.map(|s| browse::from_playable(&songs::pack_path(s)));
     let root = browse::library_root();
-    let next = match c {
-        Control::PrevSong | Control::NextSong => {
+    let playing = matches!(ctx.shared.lock().unwrap().state, State::Playing | State::Waiting);
+    let mut msg = controls::label(c).to_string();
+    let shuffle_msg = |sh: &browse::FolderShuffle| {
+        let title = sh.dir.file_name().map(|n| library::entry(&n.to_string_lossy(), true).title).unwrap_or_default();
+        format!("Shuffle {title}: {} songs", sh.progress().1)
+    };
+    // Shuffle-play claims the song and folder keys while it is on.
+    let next = match (c, app.shuffle.as_mut()) {
+        (Control::ShuffleFolder, Some(_)) => {
+            app.shuffle = None;
+            msg = "Shuffle off".into();
+            None
+        }
+        (Control::ShuffleFolder, None) => {
+            let dir = current.as_deref().and_then(|p| p.parent()).map(|d| d.to_path_buf());
+            app.shuffle = dir.and_then(|d| browse::FolderShuffle::start(&d, current.as_deref()));
+            match app.shuffle.as_ref() {
+                Some(sh) => {
+                    msg = shuffle_msg(sh);
+                    // Keep the song playing if it is the first one.
+                    if sh.current() != current || !playing {
+                        sh.current()
+                    } else {
+                        None
+                    }
+                }
+                None => {
+                    msg = "No songs to shuffle here".into();
+                    None
+                }
+            }
+        }
+        (Control::PrevSong | Control::NextSong, Some(sh)) => {
+            let n = sh.skip(if c == Control::NextSong { 1 } else { -1 });
+            if n.is_none() {
+                app.shuffle = None;
+                msg = "Shuffle: folder done".into();
+            }
+            n
+        }
+        (Control::PrevFolder | Control::NextFolder, Some(_)) => {
+            let d = if c == Control::NextFolder { 1 } else { -1 };
+            let dir = current.as_deref().and_then(|p| browse::folder_step(&root, p.parent()?, d));
+            app.shuffle = dir.and_then(|d| browse::FolderShuffle::start(&d, None));
+            app.shuffle.as_ref().and_then(|sh| {
+                msg = shuffle_msg(sh);
+                sh.current()
+            })
+        }
+        (Control::PrevSong | Control::NextSong, None) => {
             current.and_then(|p| browse::song_step(&p, if c == Control::NextSong { 1 } else { -1 }))
         }
-        Control::PrevFolder | Control::NextFolder => current.and_then(|p| {
+        (Control::PrevFolder | Control::NextFolder, None) => current.and_then(|p| {
             let dir = p.parent()?.to_path_buf();
             browse::folder_step(&root, &dir, if c == Control::NextFolder { 1 } else { -1 })
                 .and_then(|d| browse::random_song(&d))
         }),
-        Control::RandomSong => current.and_then(|p| browse::random_song(p.parent()?)),
+        (Control::RandomSong, _) => current.and_then(|p| browse::random_song(p.parent()?)),
         _ => None,
     };
     let mut o = app.opts;
     match c {
         Control::PlayPause => {
             let _ = ctx.cmds.send(Cmd::PlayPause);
-            return false;
+            return (false, msg);
         }
         Control::Restart => {
             let _ = ctx.cmds.send(Cmd::Restart);
-            return app.playing.is_some();
+            return (app.playing.is_some(), msg);
         }
         Control::TempoDown | Control::TempoUp => {
             let d = if c == Control::TempoUp { 10 } else { -10 };
@@ -876,18 +964,16 @@ fn control(c: Control, app: &mut App, ctx: &Ctx) -> bool {
             o.hands = h;
             prefs::set_i32("hands", h as i32);
         }
-        Control::Bookmark => info!("ui: bookmarks are not kept on the small boards"),
+        Control::Bookmark => {
+            msg = "No bookmarks on this board".into();
+        }
         _ => {}
     }
     if o != app.opts {
         app.set_opts(o);
     }
-    let Some(s) = next.and_then(|p| browse::pack_entry(&p)) else { return false };
-    let _ = ctx.cmds.send(Cmd::SetOptions(app.opts));
-    let _ = ctx.cmds.send(Cmd::Load(songs::pack_path(s)));
-    let _ = ctx.cmds.send(Cmd::Restart);
-    app.playing = Some(s);
-    true
+    let started = next.is_some_and(|p| play_song(app, ctx, &p));
+    (started, msg)
 }
 
 fn handle(

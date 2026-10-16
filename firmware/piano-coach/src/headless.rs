@@ -73,6 +73,8 @@ pub struct Coach {
     pub opts: Options,
     /// The search index, built in the background after boot.
     pub search: Arc<Mutex<Option<Index>>>,
+    /// Shuffle-play of a folder (G#1), if on.
+    pub shuffle: Option<browse::FolderShuffle>,
 }
 
 impl Coach {
@@ -90,6 +92,7 @@ impl Coach {
             index: 0,
             opts: player::boot_options(),
             search: Arc::new(Mutex::new(None)),
+            shuffle: None,
         };
         // Every boot: Follow mode and a random song from 儿时回忆 (started
         // by `run` once the piano is there); else the last song played.
@@ -257,6 +260,34 @@ impl Coach {
 
     /// A piano-key control (piano_core::controls).
     pub fn control(&mut self, c: Control) {
+        // Shuffle-play claims the song and folder keys while it is on.
+        if self.shuffle.is_some() {
+            match c {
+                Control::ShuffleFolder => {
+                    self.shuffle = None;
+                    info!("headless: shuffle off");
+                    return;
+                }
+                Control::PrevSong | Control::NextSong => {
+                    let d = if c == Control::NextSong { 1 } else { -1 };
+                    match self.shuffle.as_mut().and_then(|sh| sh.skip(d)) {
+                        Some(p) => self.select(&p, true),
+                        None => self.shuffle = None,
+                    }
+                    return;
+                }
+                Control::PrevFolder | Control::NextFolder => {
+                    let d = if c == Control::NextFolder { 1 } else { -1 };
+                    let dir = browse::folder_step(&self.root, &self.dir, d);
+                    self.shuffle = dir.and_then(|d| browse::FolderShuffle::start(&d, None));
+                    if let Some(p) = self.shuffle.as_ref().and_then(|sh| sh.current()) {
+                        self.select(&p, true);
+                    }
+                    return;
+                }
+                _ => {}
+            }
+        }
         match c {
             Control::PrevSong => self.step(-1),
             Control::NextSong => self.step(1),
@@ -269,12 +300,42 @@ impl Coach {
                     self.select(&p, true);
                 }
             }
+            Control::ShuffleFolder => self.shuffle_on(),
             Control::TempoDown => self.set_tempo(self.opts.tempo_pct as i32 - 10),
             Control::TempoUp => self.set_tempo(self.opts.tempo_pct as i32 + 10),
             Control::Mode(m) => self.set_mode(m),
             Control::Hands(h) => self.set_hands(h),
             // No bookmark list on the headless boards (yet).
             Control::Bookmark => info!("headless: bookmarks are not kept on this board"),
+        }
+    }
+
+    /// Shuffle-play the current folder, the current song first.
+    pub fn shuffle_on(&mut self) {
+        let current = self.current();
+        let playing = matches!(self.state(), State::Playing | State::Waiting);
+        self.shuffle = browse::FolderShuffle::start(&self.dir, current.as_deref());
+        let Some(sh) = self.shuffle.as_ref() else { return };
+        info!("headless: shuffle {} ({} songs)", self.dir.display(), sh.progress().1);
+        if let Some(p) = sh.current().filter(|p| Some(p) != current.as_ref() || !playing) {
+            self.select(&p, true);
+        }
+    }
+
+    /// Shuffle-play: start the next song when one has ended.
+    pub fn shuffle_tick(&mut self) {
+        let Some(sh) = self.shuffle.as_mut() else { return };
+        let (state, loaded) = {
+            let s = self.shared.lock().unwrap();
+            (s.state, s.path.clone())
+        };
+        match sh.tick(state, loaded.as_deref()) {
+            browse::ShuffleEvent::Idle => {}
+            browse::ShuffleEvent::Next(p) => self.select(&p, true),
+            browse::ShuffleEvent::Done | browse::ShuffleEvent::Overridden => {
+                info!("headless: shuffle over");
+                self.shuffle = None;
+            }
         }
     }
 
@@ -405,6 +466,7 @@ pub fn run(ctx: Ctx) -> anyhow::Result<()> {
         while let Ok(k) = ctx.controls.try_recv() {
             coach.lock().unwrap().control(k);
         }
+        coach.lock().unwrap().shuffle_tick();
         // The boot song starts once the piano can play it (or right away
         // when the speaker plays the notes).
         if autostart

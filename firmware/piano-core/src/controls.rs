@@ -18,7 +18,12 @@
 //! E1  previous folder (random song)      C8  bookmark the song
 //! F1  next folder (random song)
 //! G1  random song in this folder
+//! G#1 shuffle-play this folder (on / off)
 //! ```
+//!
+//! Shuffle-play ([`Shuffle`]) plays every song of the folder once, in random
+//! order, one after another; B0 / A0 then skip within that order, E1 / F1
+//! shuffle the new folder, and choosing a song any other way ends it.
 
 use crate::engine::Mode;
 use crate::song::{HandSel, Song};
@@ -32,6 +37,7 @@ pub enum Control {
     PrevFolder,
     NextFolder,
     RandomSong,
+    ShuffleFolder,
     TempoDown,
     TempoUp,
     Mode(Mode),
@@ -40,7 +46,7 @@ pub enum Control {
 }
 
 /// The key map (MIDI key → control), lowest key first.
-pub const KEYS: [(u8, Control); 16] = [
+pub const KEYS: [(u8, Control); 17] = [
     (21, Control::PrevSong),  // A0
     (22, Control::TempoDown), // A#0
     (23, Control::NextSong),  // B0
@@ -50,6 +56,7 @@ pub const KEYS: [(u8, Control); 16] = [
     (28, Control::PrevFolder), // E1
     (29, Control::NextFolder), // F1
     (31, Control::RandomSong), // G1
+    (32, Control::ShuffleFolder), // G#1
     (98, Control::Hands(HandSel::Left)),   // D7
     (100, Control::Hands(HandSel::Both)),  // E7
     (101, Control::Hands(HandSel::Right)), // F7
@@ -98,6 +105,7 @@ pub fn label(c: Control) -> &'static str {
         Control::PrevFolder => "Previous folder",
         Control::NextFolder => "Next folder",
         Control::RandomSong => "Random song",
+        Control::ShuffleFolder => "Shuffle folder",
         Control::TempoDown => "Tempo −10 %",
         Control::TempoUp => "Tempo +10 %",
         Control::Mode(Mode::Learn) => "Learn",
@@ -107,5 +115,67 @@ pub fn label(c: Control) -> &'static str {
         Control::Hands(HandSel::Right) => "Right hand",
         Control::Hands(HandSel::Left) => "Left hand",
         Control::Bookmark => "Bookmark",
+    }
+}
+
+/// A folder's songs in a random order, each once (shuffle-play). Holds the
+/// names; the caller keeps the folder.
+#[derive(Debug, Clone)]
+pub struct Shuffle {
+    order: Vec<String>,
+    pos: usize,
+}
+
+impl Shuffle {
+    /// Shuffle `songs` with `seed`; `first`, if one of them, plays first
+    /// (the song already playing when shuffle is switched on).
+    pub fn new(mut songs: Vec<String>, first: Option<&str>, seed: u64) -> Shuffle {
+        // xorshift64*; Fisher–Yates.
+        let mut x = seed | 1;
+        let mut next = || {
+            x ^= x >> 12;
+            x ^= x << 25;
+            x ^= x >> 27;
+            x.wrapping_mul(0x2545_f491_4f6c_dd1d)
+        };
+        for i in (1..songs.len()).rev() {
+            let j = (next() % (i as u64 + 1)) as usize;
+            songs.swap(i, j);
+        }
+        if let Some(i) = first.and_then(|f| songs.iter().position(|s| s == f)) {
+            let s = songs.remove(i);
+            songs.insert(0, s);
+        }
+        Shuffle { order: songs, pos: 0 }
+    }
+
+    /// The song playing now.
+    pub fn current(&self) -> Option<&str> {
+        self.order.get(self.pos).map(String::as_str)
+    }
+
+    /// Move `d` songs on (back with `d` < 0, never before the first); None
+    /// once past the last song (the folder is done).
+    pub fn step(&mut self, d: isize) -> Option<&str> {
+        let p = (self.pos as isize + d).max(0) as usize;
+        if p >= self.order.len() {
+            self.pos = self.order.len();
+            return None;
+        }
+        self.pos = p;
+        self.current()
+    }
+
+    pub fn len(&self) -> usize {
+        self.order.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.order.is_empty()
+    }
+
+    /// Songs started so far (the current one included).
+    pub fn played(&self) -> usize {
+        (self.pos + 1).min(self.order.len())
     }
 }

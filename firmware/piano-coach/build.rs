@@ -100,6 +100,9 @@ fn main() {
     println!("cargo::rustc-check-cfg=cfg(ui_full)");
     println!("cargo::rustc-check-cfg=cfg(ui_mini)");
     println!("cargo::rustc-check-cfg=cfg(ui_headless)");
+    // esp-idf-sys emits one cfg per sdkconfig option; this one is tested
+    // in threads.rs / audio.rs and is absent on boards without it.
+    println!("cargo::rustc-check-cfg=cfg(esp_idf_spiram_allow_stack_external_memory)");
     for h in HAS {
         println!("cargo::rustc-check-cfg=cfg(has_{h})");
     }

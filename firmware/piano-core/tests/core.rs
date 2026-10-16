@@ -887,3 +887,32 @@ fn control_keys_map_and_yield_to_the_song() {
     assert_eq!(controls::press(23, true, Some(&used)), Some(Control::NextSong));
     assert_eq!(controls::press(60, false, None), None);
 }
+
+#[test]
+fn shuffle_plays_each_song_once_starting_with_the_current() {
+    let songs: Vec<String> = (0..10).map(|i| format!("s{i}.mid")).collect();
+    let mut sh = controls::Shuffle::new(songs.clone(), Some("s7.mid"), 42);
+    assert_eq!(sh.len(), 10);
+    assert_eq!(sh.current(), Some("s7.mid"));
+    let mut seen = vec![sh.current().unwrap().to_string()];
+    while let Some(s) = sh.step(1) {
+        seen.push(s.to_string());
+    }
+    let mut sorted = seen.clone();
+    sorted.sort();
+    assert_eq!(sorted, songs, "every song exactly once");
+    assert_eq!(sh.played(), 10);
+    // Another seed, another order (same songs).
+    let other = controls::Shuffle::new(songs.clone(), None, 7);
+    let mut o = vec![other.current().unwrap().to_string()];
+    let mut other = other;
+    while let Some(s) = other.step(1) {
+        o.push(s.to_string());
+    }
+    assert_ne!(o, seen);
+    // Back never goes before the first song.
+    let mut b = controls::Shuffle::new(songs, None, 1);
+    let first = b.current().unwrap().to_string();
+    assert_eq!(b.step(-1).map(str::to_string), Some(first));
+    assert_eq!(controls::control(32), Some(Control::ShuffleFolder));
+}

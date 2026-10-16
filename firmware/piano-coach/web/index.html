@@ -84,6 +84,9 @@
       <button title="Stop" onclick="cmd('stop')">■</button>
       <button title="Next song" onclick="cmd('next')">⏭</button>
     </div>
+    <div class="transport">
+      <button id="shuf" title="Play every song of this folder once, in random order" onclick="cmd('shuffle')">🔀 Shuffle this folder</button>
+    </div>
   </section>
 
   <section class="card">
@@ -149,7 +152,8 @@ function render() {
   $('prompt').textContent = st.error ? st.error : (st.state === 'waiting' && st.prompt ? 'Play ' + st.prompt : '');
   $('progress').style.width = (st.dur ? 100 * st.pos / st.dur : 0) + '%';
   $('pos').textContent = st.posText; $('dur').textContent = st.durText;
-  $('state').textContent = STATE[st.state] || '';
+  $('state').textContent = (STATE[st.state] || '') + (st.shuffle ? ` · shuffle ${st.shuffle.played}/${st.shuffle.count}` : '');
+  $('shuf').textContent = st.shuffle ? '🔀 Shuffle off' : '🔀 Shuffle this folder';
   $('play').textContent = (st.state === 'playing' || st.state === 'waiting') ? '❚❚' : '▶';
   const s = st.stats;
   $('stats').innerHTML = st.mode === 'listen' ? '' :
