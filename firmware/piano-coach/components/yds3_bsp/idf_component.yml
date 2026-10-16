@@ -1,0 +1,4 @@
+description: Piano Coach board support for the VCC-GND YD-ESP32-S3 (USB OTG host, WS2812)
+dependencies:
+  idf: ">=5.3"
+  espressif/led_strip: "~3.0"

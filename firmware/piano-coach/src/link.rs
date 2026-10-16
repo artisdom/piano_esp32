@@ -20,6 +20,9 @@ pub enum KeyEvent {
 #[derive(Default)]
 pub struct Status {
     pub connected: AtomicBool,
+    /// The connection is the USB cable (boards that run both transports).
+    #[allow(dead_code)] // only the headless UI's LED shows it
+    pub usb: AtomicBool,
     /// Device name, or what the transport is doing ("Scanning…").
     pub name: Mutex<String>,
     /// Last panel SysEx from the piano (vendor `F0 52 4B pp vv 00 00 F7`).

@@ -17,6 +17,7 @@ boards have a minimal UI, keep their songs in flash and use Bluetooth
 | ESP-WROVER-KIT v4.1 | ESP32 rev 1 (dual Xtensa 240 MHz, 4 MB flash; PSRAM unused) | 3.2″ 320×240 ILI9341 / ST7789V (auto-detected), UI at 1.25× | minimal UI; BLE only; 776 songs (≤ 1200 notes) in flash; BOOT key; **remove any microSD card** |
 | Ai-Thinker ESP32-Audio-Kit | ESP32 rev 3 (4 MB flash, 4 MB PSRAM used), ES8388 codec | none — keys, tones and a Wi-Fi web page | headless; BLE only; whole library from microSD; speaker synth; six keys |
 | LILYGO T-Display-S3 | ESP32-S3R8 (16 MB flash, 8 MB PSRAM) | 1.9″ 170×320 ST7789 on an 8-bit parallel bus, used as 320×170; touch on the Touch variant | minimal UI; BLE only; all 2449 songs in flash; BOOT + KEY keys |
+| VCC-GND YD-ESP32-S3 | ESP32-S3-WROOM-1 N16R8 (16 MB flash, 8 MB PSRAM) | none — BOOT key, RGB LED and a Wi-Fi web page | headless; **USB-C OTG and BLE at once** (USB preferred); all 2449 songs in flash |
 
 Board support is a layer of its own (`firmware/piano-coach/src/board/`,
 `boards/`); see [boards/README.md](../firmware/piano-coach/boards/README.md)
@@ -177,12 +178,23 @@ revolutionary and film categories first, then others, only songs with
 ≤ 1200 notes (a song's engine data must fit beside Bluetooth and the
 UI in the C3's ~150 KB of free heap).
 
-## Boards without a display (ESP32-Audio-Kit)
+## Boards without a display (ESP32-Audio-Kit, YD-ESP32-S3)
 
-The ESP32-Audio-Kit has no screen. Piano Coach runs **headless** on it: the
-song library comes from its microSD card (as on the Tab5), the piano from
-Bluetooth, and you control it with its **six keys** and a **web page on your
-phone**; its speaker plays the built-in piano synth and short feedback tones.
+The ESP32-Audio-Kit and the YD-ESP32-S3 have no screen. Piano Coach runs
+**headless** on them, controlled with the board's keys and a **web page on
+your phone**:
+
+* **ESP32-Audio-Kit**: the song library comes from its microSD card (as
+  on the Tab5), the piano from Bluetooth; **six keys**; its speaker plays
+  the built-in piano synth and short feedback tones.
+* **YD-ESP32-S3**: all 2449 songs in flash (song pack, as on the small
+  boards); the piano on the **USB-C OTG port** and over **Bluetooth at the
+  same time** — USB is used whenever the cable is in, Bluetooth otherwise,
+  switching over mid-song when the cable is plugged or pulled; the **BOOT
+  key** and the **RGB LED**. No speaker, so the page has no sound-source or
+  volume rows. The OTG port supplies the piano's VBUS only with the
+  board's "USB-OTG" solder jumper bridged; power the board from its other
+  ("COM") port.
 
 **Web page**: the board opens a Wi-Fi network **PianoCoach-XXXX** (password
 `pianocoach`). Join it with a phone; the page opens by itself ("Sign in to
@@ -206,8 +218,18 @@ piano's LEDs.
 | KEY6 (VOL−) | speaker softer | tempo −10 % |
 | piano A0 / B0 / C1 / D1 (while nothing plays) | previous song / next song / play-pause / stop | |
 
-The green LED is on while the piano is connected and blinks while the
-board searches for it. The last song played is remembered.
+The Audio Kit's green LED is on while the piano is connected and blinks
+while the board searches for it. The last song played is remembered.
+
+| YD-ESP32-S3 BOOT key | Action |
+|---|---|
+| tap | play / pause |
+| double tap | next song in the folder |
+| hold (~1 s) | Learn → Follow → Listen (LED flashes white / yellow / violet) |
+| piano A0 / B0 / C1 / D1 (while nothing plays) | previous song / next song / play-pause / stop |
+
+Its RGB LED is green while the piano is on USB, blue on Bluetooth, and
+blinks amber while it searches.
 
 Hands are assigned from track names (left/right/左/右), else the
 higher-pitched of two tracks is the right hand, else notes split at middle
@@ -248,6 +270,8 @@ tools/board.sh tdisplays3 run --release -- --port /dev/ttyACM0
 tools/songs.sh wroverkit build && tools/songs.sh wroverkit flash --port /dev/ttyUSB1 --baud 921600
 tools/board.sh wroverkit run --release -- --port /dev/ttyUSB1
 tools/board.sh audiokit run --release -- --port /dev/ttyUSB0      # songs: microSD card
+tools/songs.sh yds3 build && tools/songs.sh yds3 flash --port /dev/ttyACM2 --baud 921600
+tools/board.sh yds3 run --release -- --port /dev/ttyACM2          # the CH343 "COM" port
 ```
 
 The ESP-WROVER-KIT's FT2232 gives two ports: `/dev/ttyUSB0` is JTAG,
@@ -325,6 +349,7 @@ tools/make_font.py --library /path/to/midi
 main.rs ── app task: board bring-up, NVS, transport choice, SD mount
   ├─ usb_midi.rs  (USB mode)  USB-host class client  ─┐  KeyEvent ▶
   ├─ ble_midi.rs  (BLE mode)  NimBLE central via C6  ─┤  ◀ MIDI msgs
+  ├─ dual.rs      (headless + USB host) both at once, USB preferred
   ├─ player.rs    engine thread, 1 kHz, owns piano_core::Engine
   └─ ui.rs        Slint software renderer on the DPI framebuffer + touch
   ├─ audio.rs     ES8388 + NS4150B speaker, renders piano_core::synth
@@ -442,6 +467,23 @@ piano-core: smf · song · engine · usbmidi · blemidi · library · search ·
   codec): the BSP sets them to +3 dB over the codec's I²C control
   interface. Output is stereo (one channel per amplifier) and the synth
   runs at twice its default gain (`SYNTH_GAIN` in the board profile).
+* **USB and BLE together** (`dual.rs`, YD-ESP32-S3): both transports
+  start; a router thread sends the player's messages to USB while the
+  piano is on the cable, else to BLE, and drops BLE key events while USB
+  is up (the piano reports each key on both links). The combined status
+  names the link ("CHMidi-2.3 (USB)") and tells the LED which colour to
+  show. The S3's full-speed OTG host comes up in `components/yds3_bsp`
+  (`usb_host_install` plus its library task), as does the WS2812
+  (`led_strip` over RMT). The console is on UART0 through the CH343,
+  since the native USB port's PHY belongs to the OTG host.
+* **Headless library from flash** (YD-ESP32-S3): with no card the song
+  pack is the library, shown to the web page as the same folder tree
+  under a virtual `/songs` root; `headless.rs` lists pack folders, maps a
+  song's path to its `/pack/<index>` entry for the player and builds the
+  search index from the pack (2449 songs in 1.4 s). Internal RAM: every
+  plain malloc goes to PSRAM (`SPIRAM_MALLOC_ALWAYSINTERNAL=0`; at 4096
+  the index's small strings ate all of it and Wi-Fi start-up panicked),
+  leaving 89 KB internal free with Wi-Fi, BLE and USB host running.
 * **Board classes** (`boards/<board>/board.env` `UI=` / `HAS=`, turned
   into `cfg(ui_full)` / `cfg(ui_mini)` / `cfg(has_usb|has_sd|has_speaker)`
   by build.rs): the full UI (`ui.rs`, `ui/app.slint`) on framebuffer
@@ -547,6 +589,13 @@ parallel ST7789, vendor init sequence) right way up and in colour, 2449
 songs mounted, BLE connects, KEY / BOOT navigation and Learn ✔; app
 2.9 MB of 4 MB, 8.3 MB heap free. The touch variant's CST816 is probed
 at boot; its landscape mapping is untested.
+
+VCC-GND YD-ESP32-S3 V1.4 (ESP32-S3 rev 0.2, N16R8): the piano on the
+USB-C OTG port (`CHMidi-2.3`, 5022:0716) and over BLE at once, Learn on
+小星星 over USB, unplugging the cable mid-song switches to Bluetooth and
+the song carries on, plugging it back switches to USB, BOOT tap / double
+tap / hold, RGB LED colours, the web page, folder list and pinyin search
+from a PC (song pack: 2449 songs, 9.1 MB) ✔; app 2.5 MB of 4 MB.
 
 ## Known limits / ideas
 

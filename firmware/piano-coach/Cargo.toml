@@ -70,6 +70,7 @@ board-2424s012 = []
 board-tdisplays3 = []
 board-wroverkit = []
 board-audiokit = []
+board-yds3 = []
 
 # Each board's native components (BSP etc.) are listed in
 # boards/<board>/esp-idf-components.toml, selected through

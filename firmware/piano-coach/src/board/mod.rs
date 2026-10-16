@@ -46,6 +46,10 @@ mod imp;
 #[path = "audiokit/mod.rs"]
 mod imp;
 
+#[cfg(feature = "board-yds3")]
+#[path = "yds3/mod.rs"]
+mod imp;
+
 mod contract;
 #[cfg(ui_mini)]
 pub mod cst816;
@@ -62,12 +66,14 @@ pub use imp::reboot;
 
 #[cfg(has_sd)]
 pub use imp::mount_sd;
+#[cfg(has_usb)]
+pub use imp::usb_host_start;
 #[cfg(has_speaker)]
 pub use imp::{speaker_codec, speaker_enable, AUDIO_CHANNELS, AUDIO_OUT_RATE, SYNTH_GAIN};
 
 #[cfg(ui_full)]
 pub use imp::{
-    display_init, fb_index, fb_rows, present, touch_to_logical, usb_host_start, FRAME_HEIGHT, FRAME_WIDTH,
+    display_init, fb_index, fb_rows, present, touch_to_logical, FRAME_HEIGHT, FRAME_WIDTH,
     RENDERING_ROTATION, UI_SCALE, WINDOW_HEIGHT, WINDOW_WIDTH,
 };
 

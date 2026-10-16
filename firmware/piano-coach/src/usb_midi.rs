@@ -256,7 +256,7 @@ unsafe fn try_detach(ctx: &mut Ctx) {
     info!("usb-midi: device detached (ep {:#04x}/{:#04x})", d.ep_in, d.ep_out);
 }
 
-/// Power the USB-A port, install the host stack and run the MIDI client on
+/// Power the USB host port, install the host stack and run the MIDI client on
 /// its own task. Messages received on `out` are sent to the piano; keyboard
 /// events are delivered on `keys`.
 pub fn start(out: Receiver<[u8; 3]>, keys: Sender<KeyEvent>) -> anyhow::Result<Arc<Status>> {
@@ -289,7 +289,7 @@ unsafe fn client_task(out: Receiver<[u8; 3]>, keys: Sender<KeyEvent>, status: Ar
         warn!("usb-midi: client register failed");
         return;
     }
-    info!("usb-midi: host client ready — waiting for the piano on USB-A");
+    info!("usb-midi: host client ready — waiting for the piano on USB");
 
     let mut backlog: std::collections::VecDeque<[u8; 3]> = Default::default();
     let mut last_out = Instant::now();

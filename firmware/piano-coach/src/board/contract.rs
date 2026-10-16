@@ -29,6 +29,10 @@ const _: fn() -> Vec<Button> = imp::poll_buttons;
 #[cfg(has_sd)]
 const _: fn() -> bool = imp::mount_sd;
 
+/// Install the USB host stack and power the host port.
+#[cfg(has_usb)]
+const _: fn() -> anyhow::Result<()> = imp::usb_host_start;
+
 #[cfg(has_speaker)]
 mod speaker {
     use super::super::imp;
@@ -76,15 +80,14 @@ mod full {
     const _: fn(usize, usize) -> usize = imp::fb_index;
     /// Shadow rows covering a physical landscape rect (x, y, w, h).
     const _: fn(usize, usize, usize, usize) -> (usize, usize) = imp::fb_rows;
-    /// Install the USB host stack and power the host port.
-    const _: fn() -> anyhow::Result<()> = imp::usb_host_start;
 }
 
 // ---- UI=headless: no display --------------------------------------------------
 
-/// A status LED (on / off).
+/// The status LED: on / off, and an RGB colour for boards whose LED has
+/// one (single-colour LEDs ignore it).
 #[cfg(ui_headless)]
-const _: fn(bool) = imp::status_led;
+const _: fn(bool, [u8; 3]) = imp::status_led;
 
 // ---- UI=mini: small SPI panels ----------------------------------------------
 

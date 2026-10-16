@@ -13,7 +13,7 @@ const PACK_PREFIX: &str = "/pack/";
 static PACK: OnceLock<Option<Pack<'static>>> = OnceLock::new();
 
 /// Map the `songs` partition and validate the pack (once).
-#[cfg(ui_mini)]
+#[cfg(not(has_sd))]
 pub fn open_pack() -> Result<&'static Pack<'static>, String> {
     use esp_idf_svc::sys::bsp;
     let mut err = String::new();
@@ -73,7 +73,7 @@ pub fn open_pack() -> Result<&'static Pack<'static>, String> {
     pack.as_ref().ok_or_else(|| if err.is_empty() { "song pack unavailable".into() } else { err })
 }
 
-#[cfg(ui_mini)]
+#[cfg(not(has_sd))]
 pub fn pack_path(index: u32) -> std::path::PathBuf {
     std::path::PathBuf::from(format!("{PACK_PREFIX}{index}"))
 }

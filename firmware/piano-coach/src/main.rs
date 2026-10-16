@@ -1,6 +1,7 @@
 //! Piano Coach — play & learn firmware for the GZUT LED piano on ESP32 dev
-//! boards (M5Stack Tab5, ESP32-S31-Korvo-1, ESP32-1732S019, ESP32-2424S012;
-//! see src/board/).
+//! boards (M5Stack Tab5, ESP32-S31-Korvo-1, ESP32-1732S019, ESP32-2424S012,
+//! LILYGO T-Display-S3, ESP-WROVER-KIT, ESP32-Audio-Kit, YD-ESP32-S3; see
+//! src/board/).
 //!
 //! Plays MIDI songs on the GZUT 88-key LED piano and teaches them: in Learn
 //! mode the piano's red key LEDs show the next chord and the song waits
@@ -16,6 +17,8 @@
 mod audio;
 mod ble_midi;
 mod board;
+#[cfg(all(has_usb, ui_headless))]
+mod dual;
 #[cfg(ui_full)]
 mod globe;
 mod link;
@@ -66,11 +69,27 @@ fn run_app() {
     board::init_power(transport);
     #[cfg(has_sd)]
     let sd_ok = board::mount_sd();
+    // Boards without a card: the song pack in flash is the library.
+    #[cfg(all(not(has_sd), ui_headless))]
+    let sd_ok = match songs::open_pack() {
+        Ok(_) => true,
+        Err(e) => {
+            error!("songs: {e}");
+            false
+        }
+    };
 
     let (out_tx, out_rx) = channel();
     let (key_tx, key_rx) = channel();
     let (cmd_tx, cmd_rx) = channel();
 
+    // Headless boards with a USB host port run both links (src/dual.rs);
+    // the others run the one chosen in Settings.
+    #[cfg(all(has_usb, ui_headless))]
+    let started = {
+        dual::start(out_rx, key_tx)
+    };
+    #[cfg(not(all(has_usb, ui_headless)))]
     let started = match transport {
         #[cfg(has_usb)]
         Transport::Usb => usb_midi::start(out_rx, key_tx),

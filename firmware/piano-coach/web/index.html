@@ -97,11 +97,11 @@
       </div></div>
     <div class="row"><label>Tempo</label>
       <div class="stepper"><button onclick="tempo(-10)">−</button><span id="tempo">100%</span><button onclick="tempo(10)">+</button></div></div>
-    <div class="row"><label>Notes from</label>
+    <div class="row spk"><label>Notes from</label>
       <div class="seg" id="sound">
         <button data-v="0">Piano</button><button data-v="1">Speaker</button><button data-v="2">Both</button>
       </div></div>
-    <div class="row"><label>Volume</label><input type="range" id="vol" min="0" max="100" step="5"></div>
+    <div class="row spk"><label>Volume</label><input type="range" id="vol" min="0" max="100" step="5"></div>
   </section>
 
   <section class="card">
@@ -144,7 +144,7 @@ function render() {
   if (!st) return;
   $('piano').classList.toggle('on', st.piano.connected);
   $('pianoName').textContent = st.piano.connected ? st.piano.name : (st.piano.name || 'searching…');
-  $('title').textContent = st.song ? st.song.title : (st.sd ? 'Pick a song below' : 'No microSD card');
+  $('title').textContent = st.song ? st.song.title : (st.sd ? 'Pick a song below' : (st.card === false ? 'No songs in flash' : 'No microSD card'));
   $('sub').textContent = st.song ? [st.song.artist, st.song.folder].filter(Boolean).join(' · ') : '';
   $('prompt').textContent = st.error ? st.error : (st.state === 'waiting' && st.prompt ? 'Play ' + st.prompt : '');
   $('progress').style.width = (st.dur ? 100 * st.pos / st.dur : 0) + '%';
@@ -155,6 +155,8 @@ function render() {
   $('stats').innerHTML = st.mode === 'listen' ? '' :
     `accuracy <b>${s.acc}%</b> · ${st.mode === 'learn' ? 'chords' : 'notes'} <b>${st.mode === 'learn' ? s.done : s.hits}/${s.total}</b> · streak <b>${s.streak}</b>`;
   seg('mode', st.mode); seg('hands', st.hands); seg('sound', st.sound);
+  // Boards without a speaker: no sound source or volume.
+  for (const r of document.querySelectorAll('.spk')) r.style.display = st.speaker === false ? 'none' : '';
   $('tempo').textContent = st.tempo + '%';
   if (document.activeElement !== $('vol')) $('vol').value = st.volume;
   if (st.song && st.song.path !== cur) { cur = st.song.path; markCurrent(); }

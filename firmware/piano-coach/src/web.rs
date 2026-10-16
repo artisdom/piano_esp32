@@ -152,9 +152,9 @@ fn state_json(coach: &SharedCoach) -> String {
     format!(
         "{{\"piano\":{{\"connected\":{connected},\"name\":{}}},\"sd\":{},\"song\":{},\"error\":{},\
          \"state\":\"{state}\",\"pos\":{},\"dur\":{},\"posText\":{},\"durText\":{},\
-         \"mode\":\"{mode}\",\"hands\":\"{hands}\",\"tempo\":{},\"volume\":{},\"sound\":{},\
+         \"mode\":\"{mode}\",\"hands\":\"{hands}\",\"tempo\":{},\"speaker\":{},\"volume\":{},\"sound\":{},\
          \"stats\":{{\"acc\":{},\"done\":{},\"total\":{},\"hits\":{},\"streak\":{}}},\"prompt\":{},\
-         \"playlist\":{{\"dir\":{},\"index\":{},\"count\":{}}},\"indexed\":{indexed}}}",
+         \"playlist\":{{\"dir\":{},\"index\":{},\"count\":{}}},\"indexed\":{indexed},\"card\":{}}}",
         esc(&piano),
         c.sd_ok,
         song.unwrap_or_else(|| "null".into()),
@@ -164,7 +164,8 @@ fn state_json(coach: &SharedCoach) -> String {
         esc(&fmt_time(snap.pos_ms)),
         esc(&fmt_time(dur)),
         c.opts.tempo_pct,
-        crate::audio::VOLUME.load(Ordering::Relaxed),
+        cfg!(has_speaker),
+        volume(),
         player::SOUND.load(Ordering::Relaxed),
         st.accuracy(),
         st.steps_done,
@@ -174,8 +175,17 @@ fn state_json(coach: &SharedCoach) -> String {
         esc(&prompt.join(" ")),
         esc(&c.rel(&c.dir)),
         c.index,
-        c.playlist.len()
+        c.playlist.len(),
+        cfg!(has_sd)
     )
+}
+
+/// Speaker volume 0–100 (none without a speaker).
+fn volume() -> i32 {
+    #[cfg(has_speaker)]
+    return crate::audio::VOLUME.load(Ordering::Relaxed);
+    #[cfg(not(has_speaker))]
+    0
 }
 
 fn dir_json(coach: &SharedCoach, rel: &str) -> Option<String> {
@@ -245,10 +255,12 @@ fn command(coach: &SharedCoach, c: &str, v: Option<String>) -> bool {
             Some(t) => co.set_tempo(t),
             None => return false,
         },
+        #[cfg(has_speaker)]
         "vol" => match num() {
             Some(t) => co.set_volume(t),
             None => return false,
         },
+        #[cfg(has_speaker)]
         "sound" => match num() {
             Some(s) => co.set_sound(s.clamp(0, 2) as u8),
             None => return false,
@@ -373,7 +385,7 @@ pub fn start(coach: SharedCoach) -> anyhow::Result<Web> {
         let ok = param(req.uri(), "p").and_then(|r| safe_rel(&r)).map(|rel| {
             let mut co = c.lock().unwrap();
             let path = co.root.join(rel);
-            let ok = path.is_file();
+            let ok = crate::headless::is_song(&path);
             if ok {
                 co.select(&path, true);
             }

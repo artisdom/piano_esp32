@@ -1,0 +1,6 @@
+# YD-ESP32-S3: USB OTG host (ESP-IDF `usb`) and the WS2812 (led_strip), in a
+# small C component. Paths are relative to this file.
+[[extra_components]]
+component_dirs = ["../../components/yds3_bsp"]
+bindings_header = "../../src/bindings.h"
+bindings_module = "bsp"

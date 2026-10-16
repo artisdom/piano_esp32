@@ -28,6 +28,12 @@
 # include "esp_lcd_panel_vendor.h"
 # include "esp_lcd_io_i80.h"
 # include "driver/i2c_master.h"
+# if __has_include("yds3_bsp.h")
+// YD-ESP32-S3: USB OTG host and WS2812 (components/yds3_bsp).
+#  include "yds3_bsp.h"
+#  include "usb/usb_host.h"
+#  include "usb/usb_helpers.h"
+# endif
 #elif CONFIG_IDF_TARGET_ESP32
 # if __has_include("audiokit_bsp.h")
 // ESP32-Audio-Kit: ES8388 codec and microSD (components/audiokit_bsp).

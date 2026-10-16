@@ -49,6 +49,7 @@ profile directory). A bare `cargo build` builds the Tab5 (defaults in
 | ESP-WROVER-KIT v4.1 | `wroverkit` | ESP32 (Xtensa) | v5.5.3 | 3.2″ 320×240 ILI9341 / ST7789V SPI (ID probe), minimal UI at 1.25× | native BLE |
 | Ai-Thinker ESP32-Audio-Kit | `audiokit` | ESP32 (Xtensa) | v5.5.3 | none: headless (keys, tones, Wi-Fi web page) | native BLE |
 | LILYGO T-Display-S3 | `tdisplays3` | ESP32-S3 (Xtensa) | v5.5.3 | 1.9″ 320×170 ST7789 on an 8-bit i80 bus, minimal UI, two keys, optional CST816 touch | native BLE |
+| VCC-GND YD-ESP32-S3 | `yds3` | ESP32-S3 (Xtensa) | v5.5.3 | none: headless (BOOT key, WS2812, Wi-Fi web page), songs in flash | USB-C OTG host (FS) and native BLE together |
 
 ## Porting a new board — checklist
 
@@ -78,8 +79,14 @@ profile directory). A bare `cargo build` builds the Tab5 (defaults in
    `SONGPACK_ARGS` budget that fits it, and check the UI in
    `tests/mini_preview` (add the size there if it is new).
 
-   UI=headless (no display): `status_led`; `poll_buttons` reports numbered
-   keys as `Button::Keypad(n)` / `KeypadHold(n)`.
+   UI=headless (no display): `status_led(on, [r, g, b])` (single-colour
+   LEDs ignore the colour); `poll_buttons` reports numbered keys as
+   `Button::Keypad(n)` / `KeypadHold(n)`, a single key as `KeyTap` /
+   `KeyDoubleTap` / `KeyHold`. Without HAS=sd the library is the flash
+   song pack (add a `songs` partition and `SONGPACK_ARGS`). With HAS=usb
+   the board runs USB host and BLE together (`src/dual.rs`).
+
+   HAS=usb: `usb_host_start` (install the USB host stack, power the port).
 
    HAS=sd: `mount_sd`. HAS=speaker: `speaker_codec` (an esp_codec_dev
    handle), `speaker_enable`, `AUDIO_OUT_RATE` / `AUDIO_CHANNELS`
@@ -92,8 +99,7 @@ profile directory). A bare `cargo build` builds the Tab5 (defaults in
      `WINDOW_WIDTH / UI_SCALE` should be ≈ 1280, height ≥ 720),
      `RENDERING_ROTATION`, `fb_index`, `fb_rows`, `touch_to_logical`;
    * `display_init` (panel, touch, two framebuffers → `board::adopt`),
-     `present`;
-   * `usb_host_start`.
+     `present`.
 4. **Feature + selection** lines in `Cargo.toml` and `src/board/mod.rs`
    (and a `src/bindings.h` branch for the target).
 5. **Check layout** on the PC: add the board's `(name, width, height, scale)`

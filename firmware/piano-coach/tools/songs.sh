@@ -22,7 +22,7 @@ cmd="${2:-}"
 }
 shift 2
 
-SONGPACK_ARGS= MCU=
+SONGPACK_ARGS= MCU= UI=
 # shellcheck source=/dev/null
 source "$app_dir/boards/$board/board.env"
 parts="$app_dir/boards/$board/partitions.csv"
@@ -38,8 +38,11 @@ build)
     mkdir -p "$(dirname "$pack")"
     # shellcheck disable=SC2086  # SONGPACK_ARGS is a word list
     eval "args=($SONGPACK_ARGS)"
+    # The glyph list is for the mini UI's fonts; headless boards have none.
+    glyphs=()
+    [[ "$UI" == mini ]] && glyphs=(--glyphs "$app_dir/boards/$board/glyphs.slint")
     (cd "$core_dir" && cargo +stable run -q --release --bin songpack -- \
-        "$lib" -o "$pack" --glyphs "$app_dir/boards/$board/glyphs.slint" "${args[@]}")
+        "$lib" -o "$pack" "${glyphs[@]}" "${args[@]}")
     size=$(awk -F', *' '$1=="songs" {print $5}' "$parts")
     printf '%s: %d bytes of %d in the songs partition\n' "$pack" "$(stat -c %s "$pack")" "$((size))"
     ;;

@@ -82,8 +82,9 @@ pub fn speaker_codec() -> Option<bsp::esp_codec_dev_handle_t> {
 /// The ES8388 driver switches the amplifier (GPIO21) with the codec.
 pub fn speaker_enable(_on: bool) {}
 
-/// The green LED (status: on = piano connected, blinking = searching).
-pub fn status_led(on: bool) {
+/// The green LED (status: on = piano connected, blinking = searching); no
+/// colour.
+pub fn status_led(on: bool, _rgb: [u8; 3]) {
     unsafe {
         bsp::gpio_set_level(LED, on as u32);
     }
@@ -95,7 +96,7 @@ pub fn set_backlight(_percent: i32) {}
 /// an RTC pull-up) or RST wakes it.
 pub fn power_off() -> ! {
     info!("power off: deep sleep, KEY2 or RST wakes");
-    status_led(false);
+    status_led(false, [0; 3]);
     unsafe {
         while bsp::gpio_get_level(13) == 0 {
             bsp::vTaskDelay(10);
