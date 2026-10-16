@@ -12,7 +12,7 @@
 
 use std::sync::Arc;
 
-use crate::song::{HandSel, Note, Song, Step};
+use crate::song::{Hand, HandSel, Note, Song, Step};
 
 pub type Msg = [u8; 3];
 
@@ -28,6 +28,15 @@ pub const SUSTAIN_OFF: Msg = [0xB0, 64, 0];
 /// Lowest velocity the piano makes audible is between 8 and 16; keep played
 /// notes clearly above it.
 const MIN_AUDIBLE_VEL: u8 = 20;
+/// Follow mode: a tracked hand counts as played by the learner from their
+/// first hit on one of its notes until this long (playing time) without one;
+/// meanwhile its notes sound softly as a guide, otherwise at full velocity.
+pub const FOLLOW_IDLE_MS: u64 = 4000;
+/// Follow mode guide: the learner's notes at this fraction of their
+/// velocity, kept audible but well under what a played key sounds like.
+const GUIDE_VEL_PCT: u32 = 40;
+const GUIDE_VEL_MIN: u8 = 24;
+const GUIDE_VEL_MAX: u8 = 48;
 /// Follow mode: a press this early/late still counts as a hit.
 const HIT_EARLY_MS: u32 = 250;
 const HIT_LATE_MS: u32 = 300;
@@ -39,18 +48,23 @@ pub enum Mode {
     Listen,
     /// LEDs show the next chord; the song waits until it is played.
     Learn,
-    /// LEDs light ahead of each note in time; the song does not wait.
+    /// Plays like Listen, with LEDs lit ahead of the tracked hands' notes;
+    /// a tracked hand the learner is playing (hits within the last
+    /// [`FOLLOW_IDLE_MS`]) sounds softly as a guide and is scored. The song
+    /// does not wait.
     Follow,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Options {
     pub mode: Mode,
-    /// Learn/Follow: the hand(s) the learner plays. Listen: hands played.
+    /// Learn: the hand(s) the learner plays. Follow: the hands tracked
+    /// (lit ahead, played softly while the learner plays them, scored).
+    /// Listen: hands played.
     pub hands: HandSel,
     /// 25..=200, percent of the file's tempo.
     pub tempo_pct: u16,
-    /// Learn/Follow: the piano plays the other hand.
+    /// Learn: the piano plays the other hand (Follow always does).
     pub accompany: bool,
     /// Learn: any key advances (young children).
     pub easy: bool,
@@ -132,6 +146,11 @@ enum TimedKind {
     /// Follow mode: light / clear a hint LED for note `idx`.
     HintOn { idx: u32 },
     HintOff { idx: u32 },
+    /// Follow mode: sound / release target `idx` — softly while the
+    /// learner plays its hand, else at full velocity; not at all if the
+    /// learner already played it (early).
+    GuideOn { idx: u32 },
+    GuideOff { idx: u32 },
 }
 
 /// Follow-mode target.
@@ -139,7 +158,18 @@ enum TimedKind {
 struct Target {
     ms: u32,
     key: u8,
+    vel: u8,
+    hand: Hand,
     hit: bool,
+    /// Its note is sounding (GuideOn played it).
+    guided: bool,
+}
+
+fn hand_ix(h: Hand) -> usize {
+    match h {
+        Hand::Right => 0,
+        Hand::Left => 1,
+    }
 }
 
 pub struct Engine {
@@ -149,6 +179,10 @@ pub struct Engine {
     /// Song position in ms (tempo-scaled song time).
     pos: f64,
     last_now: Option<u64>,
+    /// Wall-clock ms spent playing (Follow's idle timeout ignores pauses).
+    played_ms: u64,
+    /// Follow: `played_ms` of the last hit per hand (right, left).
+    last_hit: [Option<u64>; 2],
     timeline: Vec<Timed>,
     cursor: usize,
     steps: Vec<Step>,
@@ -180,6 +214,8 @@ impl Engine {
             state: State::Stopped,
             pos: 0.0,
             last_now: None,
+            played_ms: 0,
+            last_hit: [None; 2],
             timeline: Vec::new(),
             cursor: 0,
             steps: Vec::new(),
@@ -204,7 +240,9 @@ impl Engine {
         let mut targets = Vec::new();
         let audible = |n: &Note| match o.mode {
             Mode::Listen => o.hands.includes(n.hand),
-            Mode::Learn | Mode::Follow => o.accompany && !o.hands.includes(n.hand),
+            Mode::Learn => o.accompany && !o.hands.includes(n.hand),
+            // Tracked hands sound through GuideOn instead.
+            Mode::Follow => !o.hands.includes(n.hand),
         };
         for n in self.song.notes.iter() {
             if audible(n) {
@@ -225,7 +263,10 @@ impl Engine {
                 targets.push(Target {
                     ms: n.start_ms,
                     key: n.key,
+                    vel: n.vel,
+                    hand: n.hand,
                     hit: false,
+                    guided: false,
                 });
                 tl.push(Timed {
                     ms: n.start_ms.saturating_sub(o.lead_ms),
@@ -235,10 +276,19 @@ impl Engine {
                     ms: n.start_ms + HIT_LATE_MS,
                     kind: TimedKind::HintOff { idx },
                 });
+                // After the hint, so a note at the very start lights first.
+                tl.push(Timed {
+                    ms: n.start_ms,
+                    kind: TimedKind::GuideOn { idx },
+                });
+                tl.push(Timed {
+                    ms: n.end_ms,
+                    kind: TimedKind::GuideOff { idx },
+                });
             }
         }
         // The pedal belongs to whoever is playing the sound.
-        if o.mode == Mode::Listen || o.accompany {
+        if o.mode != Mode::Learn || o.accompany {
             for p in &self.song.pedals {
                 tl.push(Timed {
                     ms: p.ms,
@@ -250,7 +300,7 @@ impl Engine {
         // notes) must precede Ons of the next note on the same key.
         tl.sort_by_key(|t| {
             let order = match t.kind {
-                TimedKind::Off { .. } | TimedKind::HintOff { .. } => 0,
+                TimedKind::Off { .. } | TimedKind::HintOff { .. } | TimedKind::GuideOff { .. } => 0,
                 TimedKind::Pedal { .. } => 1,
                 _ => 2,
             };
@@ -374,6 +424,7 @@ impl Engine {
                 self.silence(out);
                 self.rebuild();
                 self.loops = 0;
+                self.last_hit = [None; 2];
                 self.seek_inner(self.loop_range.map(|r| r.0).unwrap_or(0), out);
             }
             _ => {}
@@ -418,6 +469,7 @@ impl Engine {
         self.step_hit.clear();
         for t in self.targets.iter_mut() {
             t.hit = t.ms < ms;
+            t.guided = false;
         }
         if self.opts.mode == Mode::Learn {
             self.light_step(out);
@@ -435,6 +487,9 @@ impl Engine {
     }
 
     fn release_sounding(&mut self, out: &mut Vec<Msg>) {
+        for t in self.targets.iter_mut() {
+            t.guided = false;
+        }
         for k in 0..128u8 {
             if self.sounding[k as usize] > 0 {
                 self.sounding[k as usize] = 0;
@@ -530,6 +585,7 @@ impl Engine {
         }
         let dt = self.last_now.map(|l| now.saturating_sub(l)).unwrap_or(0);
         self.last_now = Some(now);
+        self.played_ms += dt;
         if self.state == State::Playing {
             self.pos += dt as f64 * self.opts.tempo_pct as f64 / 100.0;
         }
@@ -576,8 +632,32 @@ impl Engine {
                     let tg = self.targets[idx as usize];
                     if !tg.hit {
                         self.hint_off(tg.key, out);
-                        self.stats.misses += 1;
-                        self.stats.streak = 0;
+                        // Only a hand the learner is playing can miss.
+                        if self.hand_active(tg.hand) {
+                            self.stats.misses += 1;
+                            self.stats.streak = 0;
+                        }
+                    }
+                }
+                TimedKind::GuideOn { idx } => {
+                    let tg = self.targets[idx as usize];
+                    // Already played (early): the learner's own note sounds.
+                    if !tg.hit {
+                        let vel = if self.hand_active(tg.hand) {
+                            ((tg.vel as u32 * GUIDE_VEL_PCT / 100) as u8).clamp(GUIDE_VEL_MIN, GUIDE_VEL_MAX)
+                        } else {
+                            tg.vel.max(MIN_AUDIBLE_VEL)
+                        };
+                        self.targets[idx as usize].guided = true;
+                        self.sound_on(tg.key, vel, out);
+                    }
+                }
+                TimedKind::GuideOff { idx } => {
+                    let tg = &mut self.targets[idx as usize];
+                    if tg.guided {
+                        tg.guided = false;
+                        let key = tg.key;
+                        self.sound_off(key, out);
                     }
                 }
             }
@@ -649,6 +729,7 @@ impl Engine {
         match found {
             Some(i) => {
                 self.targets[i].hit = true;
+                self.last_hit[hand_ix(self.targets[i].hand)] = Some(self.played_ms);
                 self.stats.hits += 1;
                 self.bump_streak();
                 // Its LED may already be lit (inside the lead window).
@@ -656,12 +737,25 @@ impl Engine {
                     self.hint_off(key, out);
                 }
             }
-            None => {
+            // Keys played while just listening are not scored.
+            None if self.hand_active(Hand::Right) || self.hand_active(Hand::Left) => {
                 self.stats.wrong += 1;
                 self.stats.streak = 0;
                 self.last_wrong = Some((key, pos));
             }
+            None => {}
         }
+    }
+
+    /// Follow: the learner is playing this hand (a hit on one of its notes
+    /// within the last [`FOLLOW_IDLE_MS`] of playing time).
+    fn hand_active(&self, h: Hand) -> bool {
+        self.last_hit[hand_ix(h)].is_some_and(|t| self.played_ms.saturating_sub(t) < FOLLOW_IDLE_MS)
+    }
+
+    /// Follow: whether the learner is playing the right / left hand now.
+    pub fn following(&self) -> (bool, bool) {
+        (self.hand_active(Hand::Right), self.hand_active(Hand::Left))
     }
 
     fn bump_streak(&mut self) {
@@ -672,6 +766,6 @@ impl Engine {
 
 impl Timed {
     fn is_release(&self) -> bool {
-        matches!(self.kind, TimedKind::Off { .. } | TimedKind::HintOff { .. })
+        matches!(self.kind, TimedKind::Off { .. } | TimedKind::HintOff { .. } | TimedKind::GuideOff { .. })
     }
 }

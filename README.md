@@ -10,7 +10,7 @@ piano protocol (USB `GZU-tek CHMidi-2.3`, BLE `GZUT-MIDI`, BT audio
 
 | | |
 |---|---|
-| **Learn, Follow, Listen**<br>Learn lights the next chord on the piano and waits until you play it; Follow lights keys just ahead of time and scores your timing; Listen plays the song on the piano. Practise either hand (the piano plays the other), slow down the tempo, loop a section (A–B), easy mode for small children. | ![Play page](doc/images/play.png) |
+| **Learn, Follow, Listen**<br>Learn lights the next chord on the piano and waits until you play it; Follow plays the song like Listen with the keys lit just ahead, and as soon as you join in with a hand that hand turns soft so you lead it (4 s without playing and it is loud again), scoring your timing; Listen plays the song on the piano. Practise either hand (the piano plays the other), slow down the tempo, loop a section (A–B), easy mode for small children. | ![Play page](doc/images/play.png) |
 | **Sheet music, full screen**<br>A grand staff engraved from the MIDI file — clefs, key and time signatures, beams, rests, ties, accidentals — with a cursor following the music, the notes to play now in red and automatic page turns. | ![Sheet music](doc/images/sheet.png) |
 | **Colour notation for beginners**<br>Note heads in **Boomwhackers** or **Rainbow** (Chroma-Notes style) colours, optionally with note names (C D E or Do Re Mi), to see patterns, pitches and intervals at a glance. | ![Boomwhackers colours with letter names](doc/images/sheet-colours.png) |
 | | ![Rainbow colours with solfège](doc/images/sheet-rainbow.png) |

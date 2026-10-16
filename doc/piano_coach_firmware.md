@@ -87,7 +87,7 @@ Sources: `firmware/piano-coach` (device crate) and `firmware/piano-core`
 | Mode | What happens |
 |---|---|
 | **Learn** | The next chord lights up silently (Note On velocity 1). The song waits until every lit key is played; the LED goes out as each key is hit. With "Piano plays the other hand" on, the other hand is played for you in step. Accuracy, chord count and streak are shown. |
-| **Follow** | The song runs at the chosen tempo; your hand's keys light up ahead of time ("light keys ahead", 200–1500 ms), and hits within −250/+300 ms are scored. |
+| **Follow** | The song runs at the chosen tempo and plays like Listen, with the tracked hands' keys lit ahead of time ("light keys ahead", 200–1500 ms). Join in with a hand and, from your first hit on one of its notes, the piano plays that hand softly (40 % velocity) as a guide while the other stays at full volume; play both and both go soft. A note you play early is not struck again. After 4 s of playing time without a hit on a hand, it is loud again. Only hands you are playing are scored (hits within −250/+300 ms; misses and wrong keys count only meanwhile). Hands = Both tracks both hands; Right or Left tracks only that one, and the other always plays normally. |
 | **Listen** | The piano plays the song (LEDs follow the notes). The hands selector picks what is played. |
 
 **Bookmarks and scores**: the ☆ on the song card bookmarks a song (★ in
@@ -104,7 +104,7 @@ the board).
 
 **Korvo buttons**: **PLAY** = play/pause, **SET** = next page (Library →
 Play → Settings → Library), **VOL+ / VOL−** = speaker volume ±10 %. With **Speaker**, played
-notes (Listen, and the accompaniment in Learn/Follow) come from the board's
+notes (Listen, and what the piano plays in Learn/Follow) come from the board's
 speaker while the piano's LEDs still follow them silently — so songs can
 also be listened to with no piano connected. Your own playing always
 sounds on the piano.

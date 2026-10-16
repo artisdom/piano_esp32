@@ -218,6 +218,117 @@ fn follow_scores_hits_and_misses() {
     assert!(out.contains(&[0x90, 76, 1]) && out.contains(&[0x80, 76, 0]));
 }
 
+/// Right hand: C5 every 500 ms for 10 s (vel 80); left hand: C3 at the
+/// same times (vel 60).
+fn steady_song() -> Song {
+    let mut rh = Vec::new();
+    let mut lh = Vec::new();
+    for i in 0..20 {
+        let gap = if i == 0 { 0 } else { 240 };
+        rh.push((gap, vec![0x90, 72, 80]));
+        rh.push((240, vec![0x80, 72, 0]));
+        lh.push((gap, vec![0x90, 48, 60]));
+        lh.push((240, vec![0x80, 48, 0]));
+    }
+    Song::parse(&smf_bytes(&[("Piano right", rh), ("Piano left", lh)])).unwrap()
+}
+
+/// Velocities of the Note Ons sent for `key` (hints excluded).
+fn struck(out: &[Msg], key: u8) -> Vec<u8> {
+    out.iter().filter(|m| m[0] == 0x90 && m[1] == key && m[2] > 1).map(|m| m[2]).collect()
+}
+
+fn follow(hands: HandSel) -> Options {
+    Options {
+        mode: Mode::Follow,
+        hands,
+        lead_ms: 400,
+        ..Options::default()
+    }
+}
+
+#[test]
+fn follow_plays_like_listen_until_you_join_in() {
+    let mut e = Engine::new(Arc::new(two_hand_song()), follow(HandSel::Both));
+    let mut out = Vec::new();
+    e.play(0, &mut out);
+    run(&mut e, 0, 1200, &mut out);
+    for m in [[0x90, 72, 80], [0x90, 76, 80], [0x90, 48, 60]] {
+        assert!(out.contains(&m), "{m:?} at full velocity");
+    }
+    assert!(out.contains(&[0x90, 76, 1]), "keys still lit ahead");
+    assert_eq!((e.stats().hits, e.stats().misses, e.stats().wrong), (0, 0, 0), "listening is not scored");
+}
+
+#[test]
+fn follow_plays_the_hand_you_play_softly() {
+    let mut e = Engine::new(Arc::new(steady_song()), follow(HandSel::Both));
+    let mut out = Vec::new();
+    e.play(0, &mut out);
+    e.key_down(72, &mut out); // right hand joins on the first note
+    let mut t = 0;
+    while t < 2000 {
+        t += 5;
+        e.tick(t, &mut out);
+        if t % 500 == 0 {
+            e.key_down(72, &mut out);
+        }
+    }
+    assert_eq!(e.following(), (true, false));
+    let rh = struck(&out, 72);
+    // The first C5 sounded before the learner's first hit; then soft.
+    assert_eq!(rh[0], 80);
+    assert!(rh[1..].iter().all(|&v| v == 32), "right hand guided softly: {rh:?}");
+    let lh = struck(&out, 48);
+    assert!(lh.iter().all(|&v| v == 60), "left hand at full velocity: {lh:?}");
+    assert_eq!(e.stats().misses, 0);
+}
+
+#[test]
+fn follow_returns_to_listen_after_four_idle_seconds() {
+    let mut e = Engine::new(Arc::new(steady_song()), follow(HandSel::Both));
+    let mut out = Vec::new();
+    e.play(0, &mut out);
+    e.key_down(72, &mut out); // one hit, then nothing
+    run(&mut e, 0, 9000, &mut out);
+    assert_eq!(e.following(), (false, false));
+    let rh = struck(&out, 72);
+    // C5 at 0 s full (before the hit), 0.5 … 3.5 s soft, 4 … 9 s full again.
+    assert_eq!(rh.len(), 19);
+    assert!(rh[1..8].iter().all(|&v| v == 32), "{rh:?}");
+    assert!(rh[8..].iter().all(|&v| v == 80), "{rh:?}");
+    // Misses count only while the hand was being played.
+    assert_eq!(e.stats().misses, 7);
+}
+
+#[test]
+fn follow_hands_setting_picks_the_tracked_hand() {
+    let mut e = Engine::new(Arc::new(steady_song()), follow(HandSel::Right));
+    let mut out = Vec::new();
+    e.play(0, &mut out);
+    e.key_down(48, &mut out); // left hand is not tracked: not a hit
+    e.key_down(72, &mut out);
+    run(&mut e, 0, 2000, &mut out);
+    assert_eq!(e.following(), (true, false));
+    assert!(struck(&out, 48).iter().all(|&v| v == 60), "untracked hand always at full velocity");
+    assert!(!out.contains(&[0x90, 48, 1]), "untracked hand gets no hints");
+    assert_eq!(e.stats().hits, 1);
+}
+
+#[test]
+fn follow_skips_notes_played_early() {
+    let mut e = Engine::new(Arc::new(two_hand_song()), follow(HandSel::Right));
+    let mut out = Vec::new();
+    e.play(0, &mut out);
+    run(&mut e, 0, 300, &mut out);
+    e.key_down(76, &mut out); // E5 (at 500 ms) played 200 ms early
+    run(&mut e, 305, 1200, &mut out);
+    assert_eq!((e.stats().hits, e.stats().misses), (1, 0));
+    assert!(out.contains(&[0x90, 72, 80]), "C5 played by the piano before you joined");
+    assert!(struck(&out, 76).is_empty(), "E5 not doubled");
+    assert!(out.contains(&[0x90, 48, 60]), "left hand at full velocity");
+}
+
 #[test]
 fn hint_survives_overlapping_accompaniment_off() {
     // LH plays C4 while the RH learner must also press C4 later.

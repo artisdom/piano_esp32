@@ -28,7 +28,7 @@ export component SettingsPage inherits Rectangle {
                 Heading { text: "Learning"; }
                 Toggle {
                     text: "Piano plays the other hand";
-                    hint: "In Learn and Follow, the hand you are not practising is played for you.";
+                    hint: "Learn: the hand you are not practising is played for you.";
                     checked <=> SettingsVM.accompany;
                     toggled(v) => { SettingsVM.set-accompany(v); }
                 }
