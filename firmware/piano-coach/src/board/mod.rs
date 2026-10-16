@@ -81,7 +81,7 @@ pub use imp::{
 pub use imp::status_led;
 
 #[cfg(ui_mini)]
-pub use imp::{lcd_draw, lcd_init, touch_point, LCD_HEIGHT, LCD_WIDTH, ROUND, UI_SCALE as MINI_SCALE};
+pub use imp::{lcd_draw, lcd_init, touch_point, LCD_HEIGHT, LCD_MIRROR, LCD_WIDTH, ROUND, UI_SCALE as MINI_SCALE};
 
 /// What a board has; the UI adapts to these instead of naming boards.
 /// Declarative: each UI class reads only the fields it has a use for.

@@ -42,6 +42,8 @@ pub const LCD_HEIGHT: usize = 240;
 /// Logical UI pixels per panel pixel: 256×192 logical.
 pub const UI_SCALE: f32 = 1.25;
 pub const ROUND: bool = false;
+/// The panel's orientation is the same on every unit.
+pub const LCD_MIRROR: Option<fn(&SpiLcd, bool)> = None;
 
 const BOOT_KEY: i32 = 0;
 const BACKLIGHT: i32 = 5;

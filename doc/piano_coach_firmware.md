@@ -188,7 +188,12 @@ turns green) and has a minimal UI with the essentials:
 * **Settings** — easy mode, hint off on hit, accompaniment, follow lead
   time, brightness, **Light all keys**, **All LEDs off**, board/version/
   song count, **Sleep** (deep sleep; BOOT wakes the 1.9″ board, a touch
-  wakes the round one, RESET wakes both).
+  wakes the round one, RESET wakes both). The round board also has
+  **Mirror display**: its GC9A01 panels differ in scan direction between
+  units (one bench unit is right as is, a second shows everything mirrored
+  left-right); the setting is saved on the unit. A unit too mirrored to
+  navigate can get it from the PC — see AGENTS.md ("set a pref from the
+  PC").
 
 Controls:
 
@@ -613,7 +618,7 @@ master v6.1-dev (4d59230ddff).
 
 | Check | 1.9″ (S3) | 1.28″ round (C3) |
 |---|---|---|
-| Boot, display orientation and colours | ✔ | ✔ (after un-mirroring X) |
+| Boot, display orientation and colours | ✔ | ✔ (after un-mirroring X; a second unit needs Mirror display on) |
 | Song pack mounted | ✔ 2449 songs, 8.9 MB | ✔ 776 songs, 1.33 MB |
 | BLE: connects to GZUT-MIDI by itself | ✔ | ✔ (~2.5 s after boot) |
 | Learn: LEDs light, playing advances | ✔ | ✔ |

@@ -75,7 +75,9 @@ profile directory). A bare `cargo build` builds the Tab5 (defaults in
    colour order, backlight; `spi_lcd::open_io` for SPI panels,
    `open_io_i80` for 8-bit parallel ones), `lcd_draw` (usually
    `SpiLcd::draw`), `touch_point` (`None` without touch; `board::cst816`
-   reads CST816 controllers). Add a `songs` partition and a
+   reads CST816 controllers), `LCD_MIRROR` (`None`, or `Some(fn)` that
+   flips the picture left-right when panels differ between units — the
+   mini UI then offers Settings → Mirror display). Add a `songs` partition and a
    `SONGPACK_ARGS` budget that fits it, and check the UI in
    `tests/mini_preview` (add the size there if it is new).
 

@@ -86,6 +86,10 @@ Board quirks worth knowing:
   through the I²C ctrl interface. Plain ESP32 internal RAM is the limit with
   Wi-Fi + BLE: `SPIRAM_MALLOC_ALWAYSINTERNAL=0`, PSRAM thread stacks
   (`threads.rs`), small Wi-Fi pools, HTTP server started before Wi-Fi.
+* **ESP32-2424S012C**: GC9A01 panels differ between units — the first
+  bench unit (MAC 40:4c:ca:8d:a9:68) is right unmirrored, a second
+  (68:67:25:6b:92:fc) needs **Settings → Mirror display** = On (NVS key
+  `lcdmirror`, already set on that unit).
 * **YD-ESP32-S3**: the OTG port supplies the piano's VBUS only with the
   "USB-OTG" solder jumper bridged (it is on the bench unit). Console is UART0
   via the CH343 because the native USB PHY belongs to the OTG host.
@@ -129,6 +133,14 @@ tools/songs.sh <board> flash --port /dev/ttyXXX --baud 921600
 * **Serial logs**: open the port with pyserial with DTR/RTS false (else you
   reset the board); reset via RTS pulse. Don't `pkill -f <pattern>` that
   matches your own shell command line (it kills the shell) — use PID files.
+* **Set a pref from the PC** (e.g. a board too mirrored to navigate): build
+  an NVS image with ESP-IDF's
+  `components/nvs_flash/nvs_partition_generator/nvs_partition_gen.py generate prefs.csv nvs.bin 0x6000`
+  from a CSV `key,type,encoding,value` / `piano,namespace,,` /
+  `lcdmirror,data,i32,1` (prefs are i32 in namespace `piano`; booleans
+  0/1) and `espflash write-bin --port P 0x9000 nvs.bin` (the `nvs`
+  partition offset in the board's partitions.csv). It replaces all saved
+  prefs and BLE bonds on that board.
 * **Wi-Fi tests of headless boards**: the PC's dongle `wlxa0d768003aa5` is
   normally on the home network `Trustpower_5.0GHz_0213`. Join the board's AP
   (`PianoCoach-XXXX`, password `pianocoach`, page at http://192.168.4.1) with

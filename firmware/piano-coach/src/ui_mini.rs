@@ -140,6 +140,7 @@ enum Act {
     Accompany,
     Lead,
     Brightness,
+    Mirror,
     LedTest,
     AllOff,
     Sleep,
@@ -249,6 +250,8 @@ struct App {
     items: Vec<Item>,
     opts: Options,
     brightness: i32,
+    /// Picture mirrored left-right (boards with board::LCD_MIRROR).
+    mirror: bool,
     playing: Option<u32>,
     /// Shuffle-play of a folder (G#1), if on.
     shuffle: Option<browse::FolderShuffle>,
@@ -312,6 +315,9 @@ impl App {
                         .value(format!("{:.1} s", o.lead_ms as f32 / 1000.0)),
                 );
                 v.push(Item::new("bulb", "Brightness", Act::Brightness).value(format!("{}%", self.brightness)));
+                if board::LCD_MIRROR.is_some() {
+                    v.push(Item::new("loop", "Mirror display", Act::Mirror).value(on_off(self.mirror)));
+                }
                 v.push(Item::new("bolt", "Light all keys", Act::LedTest).sub("LED test, 4 s"));
                 v.push(Item::new("erase", "All LEDs off", Act::AllOff));
                 let songs = self.pack.map(|p| p.root().songs()).unwrap_or(0);
@@ -428,6 +434,11 @@ impl App {
                 prefs::set_i32("lead", o.lead_ms as i32);
                 self.set_opts(o);
             }
+            Act::Mirror => {
+                // Applied by the render loop (it owns the panel).
+                self.mirror = !self.mirror;
+                prefs::set_bool("lcdmirror", self.mirror);
+            }
             Act::Brightness => {
                 self.brightness = if self.brightness >= 100 { 20 } else { self.brightness + 20 };
                 prefs::set_i32("brightness", self.brightness);
@@ -496,6 +507,12 @@ impl Gesture {
 
 pub fn run(ctx: Ctx) -> anyhow::Result<()> {
     let lcd = board::lcd_init(BG565)?;
+    // This unit's panel orientation (Settings → Mirror display).
+    let mirror = prefs::get_bool("lcdmirror", false);
+    if let Some(f) = board::LCD_MIRROR {
+        f(&lcd, mirror);
+    }
+    let mut mirror_shown = mirror;
     let brightness = prefs::get_i32("brightness").unwrap_or(80).clamp(10, 100);
     board::set_backlight(brightness);
 
@@ -531,6 +548,7 @@ pub fn run(ctx: Ctx) -> anyhow::Result<()> {
         items: Vec::new(),
         opts: player::boot_options(),
         brightness,
+        mirror,
         playing: None,
         shuffle: None,
         cmds: ctx.cmds.clone(),
@@ -834,9 +852,24 @@ pub fn run(ctx: Ctx) -> anyhow::Result<()> {
         }
 
         // ---- render -------------------------------------------------------------
+        // A mirror change flips what is already on the panel: repaint it all.
+        let full = app.mirror != mirror_shown;
+        if full {
+            mirror_shown = app.mirror;
+            if let Some(f) = board::LCD_MIRROR {
+                f(&lcd, app.mirror);
+            }
+            window.request_redraw();
+        }
         let redrew = window.draw_if_needed(|renderer| {
+            if full {
+                renderer.set_repaint_buffer_type(RepaintBufferType::NewBuffer);
+            }
             renderer.render_by_line(&mut bands);
             bands.flush();
+            if full {
+                renderer.set_repaint_buffer_type(RepaintBufferType::ReusedBuffer);
+            }
         });
 
         if heap_log.elapsed() > Duration::from_secs(10) {

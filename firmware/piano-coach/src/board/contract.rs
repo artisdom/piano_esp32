@@ -110,4 +110,7 @@ mod mini {
     const _: fn(&SpiLcd, usize, usize, usize, usize, &mut [u16]) = imp::lcd_draw;
     /// Current touch point in panel pixels (None: no touch or no panel).
     const _: fn() -> Option<(u16, u16)> = imp::touch_point;
+    /// Boards whose panels differ in scan direction between units: flip the
+    /// picture left-right (Settings → Mirror display, saved per unit).
+    const _: Option<fn(&SpiLcd, bool)> = imp::LCD_MIRROR;
 }

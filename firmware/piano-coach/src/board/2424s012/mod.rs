@@ -36,6 +36,18 @@ pub const LCD_HEIGHT: usize = 240;
 /// Logical UI pixels per panel pixel: 1 = the layout's native size.
 pub const UI_SCALE: f32 = 1.0;
 pub const ROUND: bool = true;
+/// The GC9A01 panels on this board differ in scan direction between
+/// production runs: one bench unit is right with no mirroring, another
+/// shows everything mirrored left-right. Settings → Mirror display flips
+/// it (saved per unit); the touch panel follows the glass, not the scan, so
+/// it needs no change.
+pub const LCD_MIRROR: Option<fn(&SpiLcd, bool)> = Some(lcd_mirror);
+
+fn lcd_mirror(lcd: &SpiLcd, on: bool) {
+    unsafe {
+        let _ = bsp::esp_lcd_panel_mirror(lcd.panel, on, false);
+    }
+}
 
 const BOOT_KEY: i32 = 9;
 const BACKLIGHT: i32 = 3;
