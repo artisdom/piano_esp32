@@ -33,7 +33,7 @@ piano protocol (USB `GZU-tek CHMidi-2.3`, BLE `GZUT-MIDI`, BT audio
 | ESP-WROVER-KIT v4.1 | ESP32 | 3.2″ 320×240 | Bluetooth | 776 in flash |
 | ESP32-2424S012C | ESP32-C3 | 1.28″ round 240×240 touch | Bluetooth | 776 in flash |
 | Ai-Thinker ESP32-Audio-Kit | ESP32 + ES8388 | none — keys + phone web page | Bluetooth | microSD |
-| ESP32-2432S028R ("Cheap Yellow Display") | ESP32 | 2.8″ 320×240 resistive touch | Bluetooth (see known issue in AGENTS.md) | 776 in flash |
+| ESP32-2432S028R ("Cheap Yellow Display") | ESP32 | 2.8″ 320×240 resistive touch | Bluetooth | 776 in flash |
 | VCC-GND YD-ESP32-S3 | ESP32-S3 | none — BOOT key, RGB LED + phone web page | USB-C OTG and Bluetooth together | all 2449 in flash |
 
 The screenshots are rendered on a PC by `firmware/piano-coach/tools/make_screenshots.sh`

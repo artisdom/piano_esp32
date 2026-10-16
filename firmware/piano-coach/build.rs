@@ -128,6 +128,12 @@ fn main() {
     if b.ui == "headless" || b.mcu == "esp32" {
         println!("cargo:rustc-cfg=ble_relaxed");
     }
+    // NimBLE's buffer-pool listing (ble_midi.rs `log_pools`): the S31's
+    // NimBLE port (ESP-IDF master) does not export os_mempool_info_get_next.
+    println!("cargo::rustc-check-cfg=cfg(nimble_pool_info)");
+    if b.mcu != "esp32s31" {
+        println!("cargo:rustc-cfg=nimble_pool_info");
+    }
 
     // Glyphs are pre-rendered for the software renderer (no fonts on the
     // device). SDF stores one distance field per glyph, scaled at draw time.

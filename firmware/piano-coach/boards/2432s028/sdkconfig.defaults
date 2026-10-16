@@ -17,8 +17,7 @@ CONFIG_SPIRAM=n
 CONFIG_SPI_FLASH_ROM_IMPL=y
 # FreeRTOS and ring-buffer functions stay in IRAM (the WROVER-KIT profile
 # moves them to flash to save IRAM): the Bluetooth controller calls them
-# from its real-time paths, and cache misses there under the UI's flash
-# reads are a suspect for the link wedging.
+# from its real-time paths.
 
 # BLE only (no Classic BT memory), NimBLE central, one link, lean pools.
 CONFIG_BT_ENABLED=y
@@ -38,14 +37,20 @@ CONFIG_BT_NIMBLE_ATT_PREFERRED_MTU=260
 CONFIG_BT_NIMBLE_NVS_PERSIST=y
 CONFIG_BT_NIMBLE_SECURITY_ENABLE=n
 CONFIG_BT_NIMBLE_LOG_LEVEL_WARNING=y
-# No modem sleep between connection events: with it, the original ESP32's
-# controller wedged under two-way MIDI traffic (link dropped, and later
-# connections got no ATT answers until the board was reset).
+# Host flow control OFF. ESP-IDF turns it on for the original ESP32 only,
+# and with it this controller stops handing the piano's packets to NimBLE
+# once it has sent as many as NimBLE has ACL buffers (24 by default): the
+# host's buffer credits evidently never come back. The piano's key presses
+# then stop arriving, the link drops (0x208), and later connections get no
+# ATT answers until a reset. ESP32-2432S028: with flow control the link
+# died ~1 s into playing (17 notifications); without it, 14 minutes of
+# Follow and ~1900 notifications without a drop.
+CONFIG_BT_NIMBLE_HS_FLOW_CTRL=n
+# No modem sleep between connection events, and NimBLE's default buffer
+# pools (not the WROVER-KIT's trimmed 12/12). Both were tried against the
+# link drops before host flow control (above) turned out to be the cause;
+# kept because the board was verified with them.
 CONFIG_BTDM_CTRL_MODEM_SLEEP=n
-# NimBLE's default buffer pools (not the WROVER-KIT's trimmed 12/12):
-# Follow streams notes to the piano while its key presses stream back, and
-# with 12 buffers the incoming side ran dry — the link dropped and later
-# connections never got an ATT answer.
 
 # microSD unused (songs come from flash), but the shared ESP-IDF checkout carries the exFAT patch
 # (tools/patch-idf-exfat.sh), which needs LFN on to compile FatFs at all.

@@ -93,14 +93,14 @@ Board quirks worth knowing:
 * **ESP32-2432S028R (CYD, `2432s028`)**: ILI9341-class panel (reads ID
   18 06 06), landscape with the USB connector on the LEFT (MV + MY);
   XPT2046 touch bit-banged (`board/xpt2046.rs`), calibrated on the bench
-  unit; CH340 console. **Open issue (also on the Audio Kit, so the
-  original ESP32 in general):** under two-way MIDI traffic (Follow plus
-  the user playing / control keys) the BLE link goes silent and drops
-  (reason 0x208); reconnects then fail service discovery until the
-  board is reset (the piano itself is fine). Ruled out: RSSI, LCD SPI
-  speed, NimBLE pool size, modem sleep, FreeRTOS in flash. Next ideas:
-  BTDM high-level interrupt option, the piano's 10 ms interval instead of
-  ble_relaxed, WRITE_GAP 0, compare against the commit before 230d3be.
+  unit; CH340 console.
+* **Original ESP32 (CYD, WROVER-KIT, Audio Kit) BLE:** keep
+  `CONFIG_BT_NIMBLE_HS_FLOW_CTRL=n` in their sdkconfig.defaults. ESP-IDF
+  defaults it on for this chip only; with it the controller stops handing
+  the piano's packets to NimBLE after ~24 (the host's ACL buffer count),
+  so key presses stop a second into playing, the link drops (0x208) and
+  reconnects fail discovery until a reset. Found with the drop/pool
+  logging in `ble_midi.rs`; fixed and verified on the CYD (2026-10-16).
 * **YD-ESP32-S3**: the OTG port supplies the piano's VBUS only with the
   "USB-OTG" solder jumper bridged (it is on the bench unit). Console is UART0
   via the CH343 because the native USB PHY belongs to the OTG host.
@@ -210,6 +210,9 @@ tools/songs.sh <board> flash --port /dev/ttyXXX --baud 921600
 
 ## State (2026-10-16) and open ends
 
+* Original-ESP32 BLE drops fixed (host flow control off; verified on the
+  CYD, WROVER-KIT and Audio Kit not re-tried). An nRF52840 dongle (Nordic
+  Open DFU bootloader) is on USB too — could become a BLE sniffer.
 * Latest firmware commits: YD-ESP32-S3 port (aed283e), adaptive Follow
   (37abc72), piano-key remote + boot song (12625bf), shuffle-play (230d3be).
   Android app `../piano-coach` 9e8a8b5 has the same Follow/remote/shuffle.

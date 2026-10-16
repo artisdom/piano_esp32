@@ -168,8 +168,8 @@ shows it next to the play state.
 ## Small boards (minimal UI)
 
 The ESP32-1732S019 (1.9″ bar), the LILYGO T-Display-S3 (1.9″ bar,
-two keys), the ESP-WROVER-KIT (3.2″) and the ESP32-2424S012C (1.28″
-round, watch-like) have no usable microSD slot, USB host or speaker. Piano Coach keeps
+two keys), the ESP-WROVER-KIT (3.2″), the ESP32-2432S028R (2.8″,
+resistive touch) and the ESP32-2424S012C (1.28″ round, watch-like) have no usable microSD slot, USB host or speaker. Piano Coach keeps
 a **song pack** in their flash, reaches the piano over **Bluetooth**
 only (it connects to `GZUT-MIDI` by itself; the dot top-left/top-centre
 turns green) and has a minimal UI with the essentials:
@@ -510,6 +510,16 @@ piano-core: smf · song · engine · usbmidi · blemidi · library · search ·
   codec): the BSP sets them to +3 dB over the codec's I²C control
   interface. Output is stereo (one channel per amplifier) and the synth
   runs at twice its default gain (`SYNTH_GAIN` in the board profile).
+* **BLE on the original ESP32** (CYD, WROVER-KIT, Audio Kit): their
+  sdkconfig turns NimBLE's host flow control off. ESP-IDF enables it for
+  this chip only, and with it the controller stops passing the piano's
+  packets to the host after as many as the host has ACL buffers (24):
+  the credits never come back. Key presses then stop arriving a second or
+  so into playing, the link times out (0x208) and every later connection
+  gets no ATT answers until a reset. `ble_midi.rs` logs what such a drop
+  looks like: a 30 s traffic line (writes, notifications, busy retries,
+  RSSI), and on a drop or failed connect how long ago each direction last
+  moved plus NimBLE's buffer pools; a NimBLE self-reset is logged too.
 * **Piano-key remote** (`piano_core::controls`, `player.rs`, `browse.rs`):
   the player checks every key press against the control map — any time
   nothing plays, mid-song only for keys the loaded song never uses (a
@@ -641,6 +651,15 @@ zero ID): display, 776 songs, BLE, BOOT navigation and Learn ✔; app
 a cache workaround Rust code is not built with). Found on the way: a
 4 KB main-task stack overflowed on this Xtensa chip (now 8 KB; it is
 freed after start-up), and a microSD card blanks the LCD (see above).
+
+ESP32-2432S028R (ESP32-WROOM-32, ESP32 rev 3, 4 MB flash, no PSRAM): display,
+touch, 776 songs, the boot song in Follow ✔. BLE under two-way traffic
+(2026-10-16): with host flow control on, the piano's key presses stopped
+after ~17 notifications, ~1 s into playing, and the link dropped 10 s
+later; with it off, 14 minutes of Follow with both hands and song
+changes from the piano (1869 notifications in, 6167 writes out) without
+a drop, no busy retries, RSSI −60 dBm ✔. The WROVER-KIT and Audio Kit carry the
+same setting but were not re-tried.
 
 LILYGO T-Display-S3 (ESP32-S3R8 rev 0.2, no touch): display (8-bit
 parallel ST7789, vendor init sequence) right way up and in colour, 2449

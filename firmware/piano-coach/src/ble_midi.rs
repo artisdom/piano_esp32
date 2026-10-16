@@ -43,10 +43,11 @@ static CONNECT_STATUS: AtomicU16 = AtomicU16::new(0);
 static CCCD_DONE: AtomicU16 = AtomicU16::new(0);
 
 /// Least time between two MIDI writes. `ble_relaxed` boards gather 15 ms
-/// of messages into one packet: a stream of small writes can take every
-/// buffer of the original ESP32's small NimBLE pools, so the piano's
-/// responses get lost and the host drops the link after 30 s (seen on the
-/// ESP32-2432S028 as reason 0x216). Well under the 30–50 ms interval.
+/// of messages into one packet: fewer, fuller packets leave airtime for
+/// Wi-Fi and the piano's key presses. Well under the 30–50 ms interval.
+/// (The original ESP32's drops under two-way traffic, once blamed on many
+/// small writes, were NimBLE host flow control — off in those boards'
+/// sdkconfig.defaults.)
 #[cfg(ble_relaxed)]
 const WRITE_GAP: Duration = Duration::from_millis(15);
 
@@ -79,6 +80,39 @@ extern "C" fn host_task(_arg: *mut core::ffi::c_void) {
         nb::nimble_port_run();
         nb::nimble_port_freertos_deinit();
     }
+}
+
+/// NimBLE reset itself (lost the controller, HCI timeout, flow-control
+/// count overflow…): otherwise invisible with NimBLE logs at WARN.
+extern "C" fn on_reset(reason: i32) {
+    warn!("ble-midi: NimBLE host reset, reason {reason} (0x{reason:x})");
+}
+
+/// NimBLE's buffer pools, free/total and the lowest free count since boot.
+/// `transport_pool_acl` holds the piano's packets until the host is done
+/// with them (with host flow control, each one is a credit the controller
+/// needs to hand us more), `msys_*` our queued writes: a pool stuck near
+/// empty shows which direction wedged.
+fn log_pools(when: &str) {
+    let mut s = String::new();
+    #[cfg(not(nimble_pool_info))]
+    s.push_str(" (not available on this chip)");
+    #[cfg(nimble_pool_info)]
+    unsafe {
+        use std::ffi::CStr;
+        use std::fmt::Write as _;
+        let mut info: nb::os_mempool_info = core::mem::zeroed();
+        let mut mp: *mut nb::os_mempool = core::ptr::null_mut();
+        loop {
+            mp = nb::os_mempool_info_get_next(mp, &mut info);
+            if mp.is_null() {
+                break;
+            }
+            let name = CStr::from_ptr(info.omi_name.as_ptr()).to_string_lossy();
+            let _ = write!(s, " {name} {}/{} (min {})", info.omi_num_free, info.omi_num_blocks, info.omi_min_free);
+        }
+    }
+    info!("ble-midi: pools {when}:{s}");
 }
 
 extern "C" fn on_sync() {
@@ -247,6 +281,7 @@ fn bring_up(status: &Status) -> anyhow::Result<()> {
         // Quiet per-write INFO logs (also set in sdkconfig).
         esp_idf_svc::sys::esp_log_level_set(c"NimBLE".as_ptr(), esp_idf_svc::sys::esp_log_level_t_ESP_LOG_WARN);
         (*core::ptr::addr_of_mut!(nb::ble_hs_cfg)).sync_cb = Some(on_sync);
+        (*core::ptr::addr_of_mut!(nb::ble_hs_cfg)).reset_cb = Some(on_reset);
         let _ = nb::ble_att_set_preferred_mtu(260);
         nb::nimble_port_freertos_init(Some(host_task));
     }
@@ -407,6 +442,7 @@ fn manager(out: Receiver<[u8; 3]>, keys: Sender<KeyEvent>, status: &Status) -> a
                 } else {
                     warn!("ble-midi: {e:#}");
                 }
+                log_pools("after the failed connect");
                 unsafe {
                     let _ = nb::ble_gap_terminate(CONN.load(Ordering::SeqCst), 0x13);
                 }
@@ -424,9 +460,18 @@ fn manager(out: Receiver<[u8; 3]>, keys: Sender<KeyEvent>, status: &Status) -> a
         let mut packer = Packer::new(limit);
         let mut pending: Option<Vec<u8>> = None;
         let mut last_write = Instant::now();
-        let mut last_rssi = Instant::now();
+        // Traffic counters for the periodic report, and when each
+        // direction last moved: a drop then shows which side went quiet
+        // first.
+        let mut last_report = Instant::now();
+        let mut last_rx = Instant::now();
+        let (mut writes, mut notes_in, mut busy) = (0u32, 0u32, 0u32);
+        let mut stalled_since: Option<Instant> = None;
+        let mut stall_warned = false;
         while CONN.load(Ordering::SeqCst) == conn {
             while let Ok(pkt) = rx_rx.try_recv() {
+                last_rx = Instant::now();
+                notes_in += 1;
                 blemidi::decode(&pkt, |m| match m {
                     [s, k, v] if s & 0xf0 == 0x90 && *v > 0 => {
                         let _ = keys.send(KeyEvent::Down { key: *k, vel: *v });
@@ -459,22 +504,48 @@ fn manager(out: Receiver<[u8; 3]>, keys: Sender<KeyEvent>, status: &Status) -> a
                 if rc == 0 {
                     pending = None;
                     last_write = Instant::now();
+                    writes += 1;
+                    if let Some(t) = stalled_since.take() {
+                        if stall_warned {
+                            info!("ble-midi: writes flowing again after {} ms", t.elapsed().as_millis());
+                        }
+                        stall_warned = false;
+                    }
                 } else if rc as u32 != nb::BLE_HS_ENOMEM && rc as u32 != nb::BLE_HS_EBUSY {
                     warn!("ble-midi: write rc {rc}");
                     pending = None;
+                } else {
+                    // ENOMEM/EBUSY: controller buffers full — retry next round.
+                    busy += 1;
+                    let t = *stalled_since.get_or_insert_with(Instant::now);
+                    if !stall_warned && t.elapsed() >= Duration::from_millis(500) {
+                        stall_warned = true;
+                        warn!(
+                            "ble-midi: writes stalled for 500 ms (rc {rc}, last notification {} ms ago)",
+                            last_rx.elapsed().as_millis()
+                        );
+                        log_pools("during the stall");
+                    }
                 }
-                // ENOMEM/EBUSY: controller buffers full — retry next round.
             }
-            // Signal strength now and then: link drops are easier to judge.
-            if last_rssi.elapsed() >= Duration::from_secs(30) {
-                last_rssi = Instant::now();
+            // Now and then: traffic and signal strength, so a drop can be
+            // judged against what the link was doing.
+            if last_report.elapsed() >= Duration::from_secs(30) {
+                last_report = Instant::now();
                 let mut rssi = 0i8;
-                if unsafe { nb::ble_gap_conn_rssi(conn, &mut rssi) } == 0 {
-                    info!("ble-midi: RSSI {rssi} dBm");
-                }
+                let _ = unsafe { nb::ble_gap_conn_rssi(conn, &mut rssi) };
+                info!("ble-midi: last 30 s: {writes} writes, {notes_in} notifications, {busy} busy retries, RSSI {rssi} dBm");
+                (writes, notes_in, busy) = (0, 0, 0);
             }
             std::thread::sleep(Duration::from_millis(2));
         }
-        warn!("ble-midi: piano disconnected (reason 0x{:03x})", DISCONNECT_REASON.load(Ordering::SeqCst));
+        warn!(
+            "ble-midi: piano disconnected (reason 0x{:03x}); last write {} ms ago, last notification {} ms ago{}",
+            DISCONNECT_REASON.load(Ordering::SeqCst),
+            last_write.elapsed().as_millis(),
+            last_rx.elapsed().as_millis(),
+            stalled_since.map(|t| format!(", writes stalled for {} ms", t.elapsed().as_millis())).unwrap_or_default()
+        );
+        log_pools("after the drop");
     }
 }
