@@ -691,8 +691,15 @@ Piano-key remote (Tab5 over Bluetooth): boots into Follow with a random
 儿时回忆 song that starts when the piano connects; every control key
 (songs, folders, random, play/pause, restart, tempo, modes, hands,
 bookmark) does what the table says ✔; shuffle-play (G#1): starts with the
-playing song, B0 skips, the next song starts by itself after one ends ✔. The other boards build with it; on
-the small and headless boards it is not yet tried on hardware.
+playing song, B0 skips, the next song starts by itself after one ends ✔.
+ESP32-1732S019 (mini UI, 2026-10-16): A0 / B0, G1, F1 / E1 by category
+(儿时回忆 → 影视剧场 → 流行空间 → 红色歌谣 → 经典乐章 → 儿时回忆 and back),
+C1, D1, A#0 / C#1, G7 / A7 / B7, D7 / E7 / F7, G#1 shuffle on / B0 skip /
+off ✔, then two-way playing: 18½ minutes connected, 679 notifications in,
+7769 writes out, no drop at −73…−95 dBm ✔. The song keys also drove the
+BLE tests on the CYD, Audio Kit and WROVER-KIT (still with the old
+folder stepping). Not yet tried: shuffle's automatic next song on the
+small and headless boards, E1 / F1 by category on a microSD board.
 
 ## Known limits / ideas
 

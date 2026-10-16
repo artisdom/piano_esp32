@@ -219,9 +219,11 @@ tools/songs.sh <board> flash --port /dev/ttyXXX --baud 921600
   Android app `../piano-coach` 9e8a8b5 has the same Follow/remote/shuffle.
 * Verified on hardware: everything on the Tab5; YD-ESP32-S3 (USB+BLE switch,
   BOOT key, web page); Audio Kit (speaker, keys, web page); the small boards
-  and WROVER-KIT up to the earlier features. The remote/shuffle are not yet
-  tried on the mini and headless boards. The Korvo has the latest firmware
-  but had no microSD card in at the last boot.
+  and WROVER-KIT up to the earlier features. The remote (every key, incl.
+  E1/F1 by category and shuffle on/skip/off) verified on the 1732S019
+  (2026-10-16); song keys used on the CYD, Audio Kit and WROVER-KIT. The
+  Korvo has the latest firmware but had no microSD card in at the last
+  boot.
 * Not done / ideas: bookmarks on small and headless boards (C8 does nothing
   there); search and A–B loop on small boards; sheet view on small boards;
   the synth is additive, not sampled; see "Known limits / ideas" in
