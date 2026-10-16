@@ -101,7 +101,7 @@ pub fn build_index(root: &Path) -> Index {
 /// The library root: a top-level `midi/` folder if there is one (as on the
 /// full boards).
 pub fn library_root() -> PathBuf {
-    let mut root = match source() {
+    let root = match source() {
         Source::Pack(_) => PathBuf::from(PACK_ROOT),
         Source::Card => ["/sdcard/midi", "/sdcard/MIDI"]
             .iter()
@@ -111,14 +111,21 @@ pub fn library_root() -> PathBuf {
     };
     // A library that is one folder (e.g. "JustPiano2-20160326/") starts
     // inside it, so the web page opens on its categories.
+    unwrap_single(&root)
+}
+
+/// `dir`, or the folder inside it while it holds nothing but one folder
+/// (a card's `midi/JustPiano2-20160326/`).
+fn unwrap_single(dir: &Path) -> PathBuf {
+    let mut dir = dir.to_path_buf();
     for _ in 0..4 {
-        let (dirs, songs) = list_dir(&root);
+        let (dirs, songs) = list_dir(&dir);
         match (dirs.as_slice(), songs.is_empty()) {
-            ([only], true) => root = root.join(only),
+            ([only], true) => dir = dir.join(only),
             _ => break,
         }
     }
-    root
+    dir
 }
 
 /// Sub-folders and songs (sorted) of a folder.
@@ -260,6 +267,9 @@ pub fn random_song_below(dir: &Path) -> Option<PathBuf> {
 /// film or composer with one song, so stepping those felt like stepping
 /// songs.
 pub fn category_step(root: &Path, path: &Path, d: isize) -> Option<PathBuf> {
+    // The full UI's root is the card's midi/, which holds only the
+    // JustPiano folder: the categories are inside that.
+    let root = &unwrap_single(root);
     let cats: Vec<PathBuf> =
         list_dir(root).0.iter().map(|c| root.join(c)).filter(|c| tree_songs(c) > 0).collect();
     if cats.is_empty() {

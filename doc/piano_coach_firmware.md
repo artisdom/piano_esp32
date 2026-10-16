@@ -148,8 +148,11 @@ work as buttons — no screen or phone needed:
 | **G#1** | shuffle-play this folder (on / off) | | |
 
 A control key works whenever nothing is playing, and during a song only if
-that song never uses the key, so a real note is never taken for a command
-(nearly all songs stay inside C1–C7). The pressed key's LED blinks once
+that song never uses the key, so a real note is never taken for a command.
+Of the 2449 library songs, A0 / A#0 / B0 are notes in ~2 %, C1 in 6 %, E1
+in 11 %, F1 in 15 % and G1 in 24 %: when a key does nothing mid-song,
+pause first (C1, or the screen if the song uses C1 too) and press it
+again. The pressed key's LED blinks once
 and the screen, if any, shows what it did; song changes open the Play
 page (small boards: the play screen). "Categories" are the library's
 top-level folders in library order (儿时回忆 → 影视剧场 → 流行空间 →
@@ -699,7 +702,10 @@ off ✔, then two-way playing: 18½ minutes connected, 679 notifications in,
 7769 writes out, no drop at −73…−95 dBm ✔. The song keys also drove the
 BLE tests on the CYD, Audio Kit and WROVER-KIT (still with the old
 folder stepping). Not yet tried: shuffle's automatic next song on the
-small and headless boards, E1 / F1 by category on a microSD board.
+small and headless boards. Tab5 (microSD): F1 / E1 by category ✔ —
+儿时回忆 → 影视剧场 → 流行空间 → 红色歌谣 → 经典乐章 → 儿时回忆 → … (the
+first try picked from the whole library: the card's `midi/` holds only
+the JustPiano folder, now stepped into).
 
 ## Known limits / ideas
 

@@ -221,7 +221,8 @@ tools/songs.sh <board> flash --port /dev/ttyXXX --baud 921600
   BOOT key, web page); Audio Kit (speaker, keys, web page); the small boards
   and WROVER-KIT up to the earlier features. The remote (every key, incl.
   E1/F1 by category and shuffle on/skip/off) verified on the 1732S019
-  (2026-10-16); song keys used on the CYD, Audio Kit and WROVER-KIT. The
+  (2026-10-16), E1/F1 by category also on the Tab5 (microSD) and the F888
+  app; song keys used on the CYD, Audio Kit and WROVER-KIT. The
   Korvo has the latest firmware but had no microSD card in at the last
   boot.
 * Not done / ideas: bookmarks on small and headless boards (C8 does nothing
