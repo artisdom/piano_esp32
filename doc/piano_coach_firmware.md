@@ -661,8 +661,11 @@ changes from the piano (1869 notifications in, 6167 writes out) without
 a drop, no busy retries, RSSI −60 dBm ✔. Audio Kit, same test with
 flow control off: 3½ minutes, four songs started from the piano, 542
 notifications in, 1888 writes out, no drop or busy retry at a weak
-−86…−94 dBm ✔ (before, it dropped the same way as the CYD). The
-WROVER-KIT carries the same setting but was not re-tried.
+−86…−94 dBm ✔ (before, it dropped the same way as the CYD).
+WROVER-KIT (12 ACL buffers, so with flow control it would stall after
+~12 packets), same test: 10 minutes, nine songs started from the piano,
+1340 notifications in, 6328 writes out, no drop or busy retry, −74…−83
+dBm ✔.
 
 LILYGO T-Display-S3 (ESP32-S3R8 rev 0.2, no touch): display (8-bit
 parallel ST7789, vendor init sequence) right way up and in colour, 2449
