@@ -186,6 +186,10 @@ pub fn parse(bytes: &[u8]) -> Result<Smf, SmfError> {
 fn parse_track(chunk: &[u8]) -> Track {
     let mut r = Reader { b: chunk, i: 0 };
     let mut t = Track::default();
+    // A channel event takes about 3 bytes (delta, running-status data):
+    // reserve that many up front, since growing by doubling would need two
+    // large buffers at once on boards with little RAM; trimmed at the end.
+    t.events.reserve_exact(chunk.len() / 3 + 8);
     let mut tick = 0u64;
     let mut status = 0u8;
     let _ = (|| -> Result<(), SmfError> {
@@ -268,6 +272,7 @@ fn parse_track(chunk: &[u8]) -> Track {
         }
         Ok(())
     })();
+    t.events.shrink_to_fit();
     t
 }
 

@@ -90,6 +90,17 @@ Board quirks worth knowing:
   bench unit (MAC 40:4c:ca:8d:a9:68) is right unmirrored, a second
   (68:67:25:6b:92:fc) needs **Settings → Mirror display** = On (NVS key
   `lcdmirror`, already set on that unit).
+* **ESP32-2432S028R (CYD, `2432s028`)**: ILI9341-class panel (reads ID
+  18 06 06), landscape with the USB connector on the LEFT (MV + MY);
+  XPT2046 touch bit-banged (`board/xpt2046.rs`), calibrated on the bench
+  unit; CH340 console. **Open issue (also on the Audio Kit, so the
+  original ESP32 in general):** under two-way MIDI traffic (Follow plus
+  the user playing / control keys) the BLE link goes silent and drops
+  (reason 0x208); reconnects then fail service discovery until the
+  board is reset (the piano itself is fine). Ruled out: RSSI, LCD SPI
+  speed, NimBLE pool size, modem sleep, FreeRTOS in flash. Next ideas:
+  BTDM high-level interrupt option, the piano's 10 ms interval instead of
+  ble_relaxed, WRITE_GAP 0, compare against the commit before 230d3be.
 * **YD-ESP32-S3**: the OTG port supplies the piano's VBUS only with the
   "USB-OTG" solder jumper bridged (it is on the bench unit). Console is UART0
   via the CH343 because the native USB PHY belongs to the OTG host.

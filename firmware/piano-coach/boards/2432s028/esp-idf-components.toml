@@ -1,0 +1,7 @@
+# ESP32-2432S028: no BSP — the ILI9341 is driven through esp_lcd's ST7789
+# driver (same DCS commands, see src/board/2432s028), the XPT2046 touch is
+# bit-banged. The bindings header still has to be generated for the
+# NimBLE/LCD APIs.
+[[extra_components]]
+bindings_header = "../../src/bindings.h"
+bindings_module = "bsp"

@@ -118,6 +118,16 @@ fn main() {
     for h in &b.has {
         println!("cargo:rustc-cfg=has_{h}");
     }
+    // A BLE link to the piano at 30–50 ms / 4 s instead of the piano's own
+    // 10 ms / 500 ms: boards sharing the radio with Wi-Fi (headless) and the
+    // original ESP32's controller, which drops the 10 ms link under load
+    // (ESP32-2432S028). See ble_midi.rs `relax_link`.
+    println!("cargo::rustc-check-cfg=cfg(ble_relaxed)");
+    // esp-idf-sys's per-chip cfg, tested in ble_midi.rs.
+    println!("cargo::rustc-check-cfg=cfg(esp32)");
+    if b.ui == "headless" || b.mcu == "esp32" {
+        println!("cargo:rustc-cfg=ble_relaxed");
+    }
 
     // Glyphs are pre-rendered for the software renderer (no fonts on the
     // device). SDF stores one distance field per glyph, scaled at draw time.

@@ -133,6 +133,8 @@ impl Stats {
 
 /// A timed output: notes sounding (`vel` > 0) or hint LEDs (`hint`).
 #[derive(Debug, Clone, Copy)]
+/// 8 bytes: a long song's timeline must fit small internal RAM (a 1200-note
+/// song in Follow has 4800 of these on an ESP32 without PSRAM).
 struct Timed {
     ms: u32,
     kind: TimedKind,
@@ -144,14 +146,23 @@ enum TimedKind {
     Off { key: u8 },
     Pedal { cc: u8, val: u8 },
     /// Follow mode: light / clear a hint LED for note `idx`.
-    HintOn { idx: u32 },
-    HintOff { idx: u32 },
+    HintOn { idx: u16 },
+    HintOff { idx: u16 },
     /// Follow mode: sound / release target `idx` — softly while the
     /// learner plays its hand, else at full velocity; not at all if the
     /// learner already played it (early).
-    GuideOn { idx: u32 },
-    GuideOff { idx: u32 },
+    GuideOn { idx: u16 },
+    GuideOff { idx: u16 },
 }
+
+/// Size of one timeline entry (tests keep it small).
+#[doc(hidden)]
+pub fn timed_size() -> usize {
+    core::mem::size_of::<Timed>()
+}
+
+/// Follow targets are indexed by u16; notes beyond simply play.
+const MAX_TARGETS: usize = u16::MAX as usize;
 
 /// Follow-mode target.
 #[derive(Debug, Clone, Copy)]
@@ -236,7 +247,10 @@ impl Engine {
 
     fn rebuild(&mut self) {
         let o = self.opts;
-        let mut tl = Vec::with_capacity(self.song.notes.len() * 2 + self.song.pedals.len());
+        // Free the old timeline first: two at once do not fit small RAM.
+        self.timeline = Vec::new();
+        self.targets = Vec::new();
+        self.steps = Vec::new();
         let mut targets = Vec::new();
         let audible = |n: &Note| match o.mode {
             Mode::Listen => o.hands.includes(n.hand),
@@ -244,8 +258,18 @@ impl Engine {
             // Tracked hands sound through GuideOn instead.
             Mode::Follow => !o.hands.includes(n.hand),
         };
+        let followed = |n: &Note| o.mode == Mode::Follow && o.hands.includes(n.hand);
+        let pedals = o.mode != Mode::Learn || o.accompany;
+        // Exact size up front: growing by doubling would hold two buffers at
+        // once, more than a small board's largest free block.
+        let n_followed = self.song.notes.iter().filter(|n| followed(n)).count().min(MAX_TARGETS);
+        let n_audible = self.song.notes.iter().filter(|n| audible(n) || followed(n)).count() - n_followed;
+        let n_pedals = if pedals { self.song.pedals.len() } else { 0 };
+        let mut tl = Vec::with_capacity(n_audible * 2 + n_followed * 4 + n_pedals);
+        targets.reserve_exact(n_followed);
         for n in self.song.notes.iter() {
-            if audible(n) {
+            let tracked = followed(n) && targets.len() < MAX_TARGETS;
+            if audible(n) || (followed(n) && !tracked) {
                 tl.push(Timed {
                     ms: n.start_ms,
                     kind: TimedKind::On {
@@ -258,8 +282,8 @@ impl Engine {
                     kind: TimedKind::Off { key: n.key },
                 });
             }
-            if o.mode == Mode::Follow && o.hands.includes(n.hand) {
-                let idx = targets.len() as u32;
+            if tracked {
+                let idx = targets.len() as u16;
                 targets.push(Target {
                     ms: n.start_ms,
                     key: n.key,
@@ -276,7 +300,6 @@ impl Engine {
                     ms: n.start_ms + HIT_LATE_MS,
                     kind: TimedKind::HintOff { idx },
                 });
-                // After the hint, so a note at the very start lights first.
                 tl.push(Timed {
                     ms: n.start_ms,
                     kind: TimedKind::GuideOn { idx },
@@ -288,7 +311,7 @@ impl Engine {
             }
         }
         // The pedal belongs to whoever is playing the sound.
-        if o.mode != Mode::Learn || o.accompany {
+        if pedals {
             for p in &self.song.pedals {
                 tl.push(Timed {
                     ms: p.ms,
@@ -296,13 +319,16 @@ impl Engine {
                 });
             }
         }
-        // Stable sort: at equal times Offs (pushed after Ons of *earlier*
-        // notes) must precede Ons of the next note on the same key.
-        tl.sort_by_key(|t| {
+        // In place (a stable sort would allocate scratch the size of half
+        // the timeline). At equal times: releases first, so an Off precedes
+        // the next On of the same key; then pedals; then hints, so a note at
+        // the very start lights before it sounds; then notes.
+        tl.sort_unstable_by_key(|t| {
             let order = match t.kind {
-                TimedKind::Off { .. } | TimedKind::HintOff { .. } | TimedKind::GuideOff { .. } => 0,
+                TimedKind::Off { .. } | TimedKind::HintOff { .. } | TimedKind::GuideOff { .. } => 0u8,
                 TimedKind::Pedal { .. } => 1,
-                _ => 2,
+                TimedKind::HintOn { .. } => 2,
+                TimedKind::On { .. } | TimedKind::GuideOn { .. } => 3,
             };
             (t.ms, order)
         });

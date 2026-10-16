@@ -157,13 +157,11 @@ fn run_app() {
 }
 
 fn spawn_ui(stack: usize, f: impl FnOnce() -> anyhow::Result<()> + Send + 'static) {
-    std::thread::Builder::new()
-        .name("ui".into())
-        .stack_size(stack)
-        .spawn(move || {
-            if let Err(e) = f() {
-                error!("ui stopped: {e:#}");
-            }
-        })
-        .expect("spawn ui");
+    // Core 1 on the original ESP32: core 0 is the Bluetooth controller's.
+    threads::spawn_core1("ui", stack, move || {
+        if let Err(e) = f() {
+            error!("ui stopped: {e:#}");
+        }
+    })
+    .expect("spawn ui");
 }

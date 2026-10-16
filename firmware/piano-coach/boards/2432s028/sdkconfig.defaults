@@ -1,0 +1,54 @@
+# Piano Coach on the ESP32-2432S028R (ESP32-WROOM-32, ESP32 rev 3, 4 MB
+# flash, no PSRAM). Console on UART0 through the CH340 (/dev/ttyUSB*).
+CONFIG_ESPTOOLPY_FLASHMODE_DIO=y
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+
+# 1 kHz tick: MIDI timing needs ms resolution.
+CONFIG_FREERTOS_HZ=1000
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+CONFIG_PTHREAD_TASK_STACK_SIZE_DEFAULT=6144
+CONFIG_ESP_TASK_WDT_TIMEOUT_S=15
+
+# No PSRAM on the WROOM-32 module.
+CONFIG_SPIRAM=n
+CONFIG_SPI_FLASH_ROM_IMPL=y
+# FreeRTOS and ring-buffer functions stay in IRAM (the WROVER-KIT profile
+# moves them to flash to save IRAM): the Bluetooth controller calls them
+# from its real-time paths, and cache misses there under the UI's flash
+# reads are a suspect for the link wedging.
+
+# BLE only (no Classic BT memory), NimBLE central, one link, lean pools.
+CONFIG_BT_ENABLED=y
+CONFIG_BT_CONTROLLER_ENABLED=y
+CONFIG_BTDM_CTRL_MODE_BLE_ONLY=y
+CONFIG_BTDM_CTRL_BLE_MAX_CONN=1
+CONFIG_BT_NIMBLE_ENABLED=y
+CONFIG_BT_NIMBLE_HOST_TASK_STACK_SIZE=5120
+CONFIG_BT_NIMBLE_ROLE_CENTRAL=y
+CONFIG_BT_NIMBLE_ROLE_OBSERVER=y
+CONFIG_BT_NIMBLE_ROLE_PERIPHERAL=n
+CONFIG_BT_NIMBLE_ROLE_BROADCASTER=n
+CONFIG_BT_NIMBLE_MAX_CONNECTIONS=1
+CONFIG_BT_NIMBLE_MAX_BONDS=2
+CONFIG_BT_NIMBLE_MAX_CCCDS=4
+CONFIG_BT_NIMBLE_ATT_PREFERRED_MTU=260
+CONFIG_BT_NIMBLE_NVS_PERSIST=y
+CONFIG_BT_NIMBLE_SECURITY_ENABLE=n
+CONFIG_BT_NIMBLE_LOG_LEVEL_WARNING=y
+# No modem sleep between connection events: with it, the original ESP32's
+# controller wedged under two-way MIDI traffic (link dropped, and later
+# connections got no ATT answers until the board was reset).
+CONFIG_BTDM_CTRL_MODEM_SLEEP=n
+# NimBLE's default buffer pools (not the WROVER-KIT's trimmed 12/12):
+# Follow streams notes to the piano while its key presses stream back, and
+# with 12 buffers the incoming side ran dry — the link dropped and later
+# connections never got an ATT answer.
+
+# microSD unused (songs come from flash), but the shared ESP-IDF checkout carries the exFAT patch
+# (tools/patch-idf-exfat.sh), which needs LFN on to compile FatFs at all.
+CONFIG_FATFS_LFN_HEAP=y
+CONFIG_FATFS_MAX_LFN=255
+CONFIG_FATFS_USE_LABEL=y

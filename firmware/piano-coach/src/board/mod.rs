@@ -50,6 +50,10 @@ mod imp;
 #[path = "yds3/mod.rs"]
 mod imp;
 
+#[cfg(feature = "board-2432s028")]
+#[path = "2432s028/mod.rs"]
+mod imp;
+
 mod contract;
 #[cfg(ui_mini)]
 pub mod cst816;
@@ -57,6 +61,8 @@ pub mod cst816;
 pub mod key;
 #[cfg(ui_mini)]
 pub mod spi_lcd;
+#[cfg(feature = "board-2432s028")]
+pub mod xpt2046;
 
 #[allow(unused_imports)] // the headless UI has no backlight or shut-down item
 pub use imp::{bt_controller_start, early_init, init_power, poll_buttons, power_off, set_backlight, CAPS};

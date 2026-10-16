@@ -159,7 +159,15 @@ impl Song {
             vel: u8,
             track: u8,
         }
-        let mut raw: Vec<Raw> = Vec::new();
+        // Sized from a count of note-ons: growing by doubling would need two
+        // buffers at once, too much for a small board right after boot.
+        let note_ons = smf
+            .tracks
+            .iter()
+            .flat_map(|t| t.events.iter())
+            .filter(|e| matches!(e.kind, Kind::NoteOn { ch, .. } if ch != 9))
+            .count();
+        let mut raw: Vec<Raw> = Vec::with_capacity(note_ons);
         let mut pedals = Vec::new();
         let mut track_ids: Vec<u8> = Vec::new();
         let mut names: Vec<String> = Vec::new();
@@ -284,7 +292,8 @@ impl Song {
                 }
             })
             .collect();
-        notes.sort_by_key(|n| (n.start_ms, n.key));
+        // In place: a stable sort allocates scratch as large as the notes.
+        notes.sort_unstable_by_key(|n| (n.start_ms, n.key, n.end_ms));
         pedals.sort_by_key(|p| p.ms);
 
         let duration_ms = notes.iter().map(|n| n.end_ms).max().unwrap_or(0);

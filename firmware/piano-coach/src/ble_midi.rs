@@ -39,6 +39,22 @@ static VAL_HANDLE: AtomicU16 = AtomicU16::new(0);
 static MTU: AtomicU16 = AtomicU16::new(23);
 static DISCONNECT_REASON: AtomicU16 = AtomicU16::new(0);
 static CONNECT_STATUS: AtomicU16 = AtomicU16::new(0);
+/// The notification (CCCD) write: 0 pending, 1 confirmed, 2 failed.
+static CCCD_DONE: AtomicU16 = AtomicU16::new(0);
+
+/// Least time between two MIDI writes. `ble_relaxed` boards gather 15 ms
+/// of messages into one packet: a stream of small writes can take every
+/// buffer of the original ESP32's small NimBLE pools, so the piano's
+/// responses get lost and the host drops the link after 30 s (seen on the
+/// ESP32-2432S028 as reason 0x216). Well under the 30–50 ms interval.
+#[cfg(ble_relaxed)]
+const WRITE_GAP: Duration = Duration::from_millis(15);
+
+/// `ble_relaxed` link supervision timeout, in 10 ms units: 10 s.
+#[cfg(ble_relaxed)]
+const SUPERVISION_10MS: u16 = 1000;
+#[cfg(not(ble_relaxed))]
+const WRITE_GAP: Duration = Duration::ZERO;
 static FOUND: Mutex<Option<nb::ble_addr_t>> = Mutex::new(None);
 static RX: Mutex<Option<Sender<Vec<u8>>>> = Mutex::new(None);
 
@@ -125,12 +141,12 @@ extern "C" fn on_gap(event: *mut nb::ble_gap_event, _arg: *mut core::ffi::c_void
             nb::BLE_GAP_EVENT_CONN_UPDATE => {
                 let conn = ev.__bindgen_anon_1.conn_update.conn_handle;
                 log_conn_params(conn, "updated");
-                #[cfg(ui_headless)]
+                #[cfg(ble_relaxed)]
                 relax_link(conn);
             }
-            // Boards that share the radio with Wi-Fi keep the interval at
-            // 30–50 ms: shorter ones starve Wi-Fi (the web page) of airtime.
-            #[cfg(ui_headless)]
+            // `ble_relaxed` boards keep the interval at 30–50 ms: shorter
+            // ones starve Wi-Fi of airtime or drop on the original ESP32.
+            #[cfg(ble_relaxed)]
             nb::BLE_GAP_EVENT_CONN_UPDATE_REQ | nb::BLE_GAP_EVENT_L2CAP_UPDATE_REQ => {
                 let r = &ev.__bindgen_anon_1.conn_update_req;
                 if !r.self_params.is_null() {
@@ -139,7 +155,7 @@ extern "C" fn on_gap(event: *mut nb::ble_gap_event, _arg: *mut core::ffi::c_void
                         s.itvl_min = 24;
                         s.itvl_max = 40;
                     }
-                    s.supervision_timeout = s.supervision_timeout.max(400);
+                    s.supervision_timeout = s.supervision_timeout.max(SUPERVISION_10MS);
                 }
             }
             nb::BLE_GAP_EVENT_MTU => {
@@ -187,6 +203,17 @@ fn uuid(s: &str) -> anyhow::Result<nb::ble_uuid_any_t> {
     Ok(u)
 }
 
+extern "C" fn on_cccd(
+    _conn: u16,
+    error: *const nb::ble_gatt_error,
+    _attr: *mut nb::ble_gatt_attr,
+    _arg: *mut core::ffi::c_void,
+) -> i32 {
+    let ok = unsafe { error.is_null() || (*error).status == 0 };
+    CCCD_DONE.store(if ok { 1 } else { 2 }, Ordering::SeqCst);
+    0
+}
+
 fn wait(what: &str, secs: u64, mut done: impl FnMut() -> bool) -> anyhow::Result<()> {
     let t = Instant::now();
     while !done() {
@@ -203,6 +230,20 @@ fn bring_up(status: &Status) -> anyhow::Result<()> {
     crate::board::bt_controller_start(status)?;
     unsafe {
         esp!(nb::nimble_port_init())?;
+        // The original ESP32 sends at +3 dBm by default; its maximum, +9 dBm,
+        // keeps the piano hearing boards with a weak antenna (the
+        // ESP32-2432S028 saw the piano at −83 dBm a couple of metres away).
+        #[cfg(esp32)]
+        {
+            use esp_idf_svc::sys as sys;
+            for t in [
+                sys::esp_ble_power_type_t_ESP_BLE_PWR_TYPE_DEFAULT,
+                sys::esp_ble_power_type_t_ESP_BLE_PWR_TYPE_SCAN,
+                sys::esp_ble_power_type_t_ESP_BLE_PWR_TYPE_CONN_HDL0,
+            ] {
+                let _ = sys::esp_ble_tx_power_set(t, sys::esp_power_level_t_ESP_PWR_LVL_P9);
+            }
+        }
         // Quiet per-write INFO logs (also set in sdkconfig).
         esp_idf_svc::sys::esp_log_level_set(c"NimBLE".as_ptr(), esp_idf_svc::sys::esp_log_level_t_ESP_LOG_WARN);
         (*core::ptr::addr_of_mut!(nb::ble_hs_cfg)).sync_cb = Some(on_sync);
@@ -228,12 +269,16 @@ fn scan() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Headless boards share the radio with Wi-Fi. The piano renegotiates a
-/// 10 ms interval with a 500 ms supervision timeout right after connecting
-/// (link-layer procedure, not offered to the host), which drops the link
-/// whenever Wi-Fi is busy: ask for 30–50 ms and 4 s instead, at most twice
-/// per connection so the two sides cannot ping-pong.
-#[cfg(ui_headless)]
+/// The piano renegotiates a 10 ms interval with a 500 ms supervision
+/// timeout right after connecting (link-layer procedure, not offered to the
+/// host). That drops the link on headless boards whenever Wi-Fi is busy,
+/// and on the original ESP32 under the UI's load (ESP32-2432S028: gone
+/// 5 s after connecting, then every service discovery timed out). Boards
+/// built with `ble_relaxed` ask for 30–50 ms and a 10 s supervision timeout
+/// instead (a hand between a weak-antenna board and the piano blanked the
+/// link for over 4 s on the ESP32-2432S028), at most twice per connection
+/// so the two sides cannot ping-pong.
+#[cfg(ble_relaxed)]
 fn relax_link(conn: u16) {
     static TRIES: AtomicU16 = AtomicU16::new(0);
     static FOR_CONN: AtomicU16 = AtomicU16::new(NO_CONN);
@@ -242,7 +287,7 @@ fn relax_link(conn: u16) {
     }
     unsafe {
         let mut d: nb::ble_gap_conn_desc = core::mem::zeroed();
-        if nb::ble_gap_conn_find(conn, &mut d) != 0 || (d.conn_itvl >= 24 && d.supervision_timeout >= 400) {
+        if nb::ble_gap_conn_find(conn, &mut d) != 0 || (d.conn_itvl >= 24 && d.supervision_timeout >= SUPERVISION_10MS) {
             return;
         }
         if TRIES.fetch_add(1, Ordering::SeqCst) >= 2 {
@@ -252,12 +297,12 @@ fn relax_link(conn: u16) {
             itvl_min: 24,
             itvl_max: 40,
             latency: 0,
-            supervision_timeout: 400,
+            supervision_timeout: SUPERVISION_10MS,
             min_ce_len: 0x10,
             max_ce_len: 0x300,
         };
         let rc = nb::ble_gap_update_params(conn, &p);
-        info!("ble-midi: asking for a 30–50 ms interval, 4 s supervision (rc {rc})");
+        info!("ble-midi: asking for a 30–50 ms interval, 10 s supervision (rc {rc})");
     }
 }
 
@@ -281,24 +326,24 @@ fn connect(addr: nb::ble_addr_t) -> anyhow::Result<u16> {
     CONN.store(NO_CONN, Ordering::SeqCst);
     unsafe {
         let _ = nb::ble_gap_disc_cancel();
-        // Headless boards share the radio with Wi-Fi: a 30–50 ms interval
-        // and a 6 s supervision timeout (default 2.56 s) ride out busy
-        // moments instead of dropping the piano.
-        #[cfg(ui_headless)]
+        // `ble_relaxed` boards (Wi-Fi sharing the radio, original ESP32): a
+        // 30–50 ms interval and a 10 s supervision timeout (default 2.56 s)
+        // ride out busy moments instead of dropping the piano.
+        #[cfg(ble_relaxed)]
         let params = nb::ble_gap_conn_params {
             scan_itvl: 0x10,
             scan_window: 0x10,
             itvl_min: 24,
             itvl_max: 40,
             latency: 0,
-            supervision_timeout: 400,
+            supervision_timeout: SUPERVISION_10MS,
             // NimBLE's own defaults (0 is not accepted by every controller).
             min_ce_len: 0x10,
             max_ce_len: 0x300,
         };
-        #[cfg(ui_headless)]
+        #[cfg(ble_relaxed)]
         let params_ptr: *const nb::ble_gap_conn_params = &params;
-        #[cfg(not(ui_headless))]
+        #[cfg(not(ble_relaxed))]
         let params_ptr: *const nb::ble_gap_conn_params = core::ptr::null();
         let rc = nb::ble_gap_connect(0, &addr, 10_000, params_ptr, Some(on_gap), core::ptr::null_mut());
         anyhow::ensure!(rc == 0, "connect rc {rc}");
@@ -320,11 +365,17 @@ fn connect(addr: nb::ble_addr_t) -> anyhow::Result<u16> {
     wait("MIDI characteristic discovery", 8, || VAL_HANDLE.load(Ordering::SeqCst) != 0)?;
     let h = VAL_HANDLE.load(Ordering::SeqCst);
     // Notifications on: CCCD sits right after the value handle.
+    // Wait for the piano's answer before sending anything else: MIDI
+    // traffic must not crowd out the response.
     let cccd = [1u8, 0];
+    CCCD_DONE.store(0, Ordering::SeqCst);
     unsafe {
-        esp!(nb::ble_gattc_write_flat(conn, h + 1, cccd.as_ptr() as *const _, 2, None, core::ptr::null_mut()))?;
+        esp!(nb::ble_gattc_write_flat(conn, h + 1, cccd.as_ptr() as *const _, 2, Some(on_cccd), core::ptr::null_mut()))?;
     }
-    std::thread::sleep(Duration::from_millis(200));
+    wait("notification setup", 5, || CCCD_DONE.load(Ordering::SeqCst) != 0)?;
+    if CCCD_DONE.load(Ordering::SeqCst) == 2 {
+        warn!("ble-midi: the piano refused notifications (its keys will not reach us)");
+    }
     info!("ble-midi: connected, MIDI value handle {h}, MTU {}", MTU.load(Ordering::SeqCst));
     log_conn_params(conn, "up");
     Ok(conn)
@@ -350,7 +401,12 @@ fn manager(out: Receiver<[u8; 3]>, keys: Sender<KeyEvent>, status: &Status) -> a
         let conn = match connect(addr) {
             Ok(c) => c,
             Err(e) => {
-                warn!("ble-midi: {e:#}");
+                // Did the link itself go, or only the procedure?
+                if CONN.load(Ordering::SeqCst) == NO_CONN && CONNECT_DONE.load(Ordering::SeqCst) {
+                    warn!("ble-midi: {e:#} (link lost, reason 0x{:03x})", DISCONNECT_REASON.load(Ordering::SeqCst));
+                } else {
+                    warn!("ble-midi: {e:#}");
+                }
                 unsafe {
                     let _ = nb::ble_gap_terminate(CONN.load(Ordering::SeqCst), 0x13);
                 }
@@ -367,6 +423,8 @@ fn manager(out: Receiver<[u8; 3]>, keys: Sender<KeyEvent>, status: &Status) -> a
         let limit = (MTU.load(Ordering::SeqCst) as usize).saturating_sub(3);
         let mut packer = Packer::new(limit);
         let mut pending: Option<Vec<u8>> = None;
+        let mut last_write = Instant::now();
+        let mut last_rssi = Instant::now();
         while CONN.load(Ordering::SeqCst) == conn {
             while let Ok(pkt) = rx_rx.try_recv() {
                 blemidi::decode(&pkt, |m| match m {
@@ -383,7 +441,7 @@ fn manager(out: Receiver<[u8; 3]>, keys: Sender<KeyEvent>, status: &Status) -> a
                 });
             }
             // Gather everything queued into as few packets as possible.
-            if pending.is_none() {
+            if pending.is_none() && last_write.elapsed() >= WRITE_GAP {
                 while let Ok(m) = out.try_recv() {
                     if let Some(full) = packer.push(&m) {
                         pending = Some(full);
@@ -400,11 +458,20 @@ fn manager(out: Receiver<[u8; 3]>, keys: Sender<KeyEvent>, status: &Status) -> a
                 };
                 if rc == 0 {
                     pending = None;
+                    last_write = Instant::now();
                 } else if rc as u32 != nb::BLE_HS_ENOMEM && rc as u32 != nb::BLE_HS_EBUSY {
                     warn!("ble-midi: write rc {rc}");
                     pending = None;
                 }
                 // ENOMEM/EBUSY: controller buffers full — retry next round.
+            }
+            // Signal strength now and then: link drops are easier to judge.
+            if last_rssi.elapsed() >= Duration::from_secs(30) {
+                last_rssi = Instant::now();
+                let mut rssi = 0i8;
+                if unsafe { nb::ble_gap_conn_rssi(conn, &mut rssi) } == 0 {
+                    info!("ble-midi: RSSI {rssi} dBm");
+                }
             }
             std::thread::sleep(Duration::from_millis(2));
         }

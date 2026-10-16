@@ -916,3 +916,9 @@ fn shuffle_plays_each_song_once_starting_with_the_current() {
     assert_eq!(b.step(-1).map(str::to_string), Some(first));
     assert_eq!(controls::control(32), Some(Control::ShuffleFolder));
 }
+
+#[test]
+fn timeline_entries_stay_small() {
+    // A 1200-note song in Follow keeps 4800 of them on boards without PSRAM.
+    assert!(piano_core::engine::timed_size() <= 8);
+}
