@@ -142,8 +142,6 @@ fn run(
     let mut rev = 0u64;
     let mut last_publish = Instant::now();
     let mut dirty = true;
-    // Keys the loaded song plays (they are notes, not controls, mid-song).
-    let mut used: Option<[bool; 128]> = None;
     // Control keys pressed: their LED goes off at the deadline; their
     // release is not passed on.
     let mut flashes: Vec<(u8, Instant)> = Vec::new();
@@ -159,7 +157,6 @@ fn run(
                     }
                     // Free the old song before parsing the next (small RAM).
                     drop(engine.take());
-                    used = None;
                     set_loaded(&sh, None, None, None);
                     match crate::songs::read(&path)
                         .and_then(|b| Song::parse(&b).map_err(|e| e.to_string()))
@@ -170,7 +167,6 @@ fn run(
                         }
                         Ok(song) => {
                             let song = Arc::new(song);
-                            used = Some(controls::used_keys(&song));
                             engine = Some(Engine::new(song.clone(), opts));
                             info!(
                                 "loaded {} — {} notes, {} tracks, {:.0} bpm, split {:?}; heap free {} KB",
@@ -283,11 +279,26 @@ fn run(
         while let Ok(k) = keys.try_recv() {
             dirty = true;
             // Control keys (piano_core::controls): any time nothing plays,
-            // mid-song only those the song never uses.
-            let busy = engine.as_ref().is_some_and(|e| matches!(e.state(), State::Playing | State::Waiting));
+            // mid-song unless the song plays that key near where it is.
+            let playing = engine
+                .as_ref()
+                .filter(|e| matches!(e.state(), State::Playing | State::Waiting))
+                .map(|e| (e.song().as_ref(), e.position_ms(), e.options().hands));
             match k {
                 KeyEvent::Down { key, .. } => {
-                    if let Some(c) = controls::press(key, busy, used.as_ref()) {
+                    if let (Some(c), Some((song, pos, hands))) = (controls::control(key), playing) {
+                        // Say so when a control key is taken as a note: on
+                        // the piano it just looks like the key did nothing.
+                        if let Some(d) = controls::note_near(song, key, pos, hands) {
+                            info!(
+                                "control key {} is a note here ({:+.1} s): no {}",
+                                piano_core::song::key_name(key),
+                                d as f32 / 1000.0,
+                                controls::label(c)
+                            );
+                        }
+                    }
+                    if let Some(c) = controls::press(key, playing) {
                         info!("control: {} ({})", controls::label(c), piano_core::song::key_name(key));
                         let _ = controls.send(c);
                         held[key as usize & 127] = true;

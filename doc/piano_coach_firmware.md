@@ -147,12 +147,14 @@ work as buttons — no screen or phone needed:
 | **G1** | random song in this folder | | |
 | **G#1** | shuffle-play this folder (on / off) | | |
 
-A control key works whenever nothing is playing, and during a song only if
-that song never uses the key, so a real note is never taken for a command.
-Of the 2449 library songs, A0 / A#0 / B0 are notes in ~2 %, C1 in 6 %, E1
-in 11 %, F1 in 15 % and G1 in 24 %: when a key does nothing mid-song,
-pause first (C1, or the screen if the song uses C1 too) and press it
-again. The pressed key's LED blinks once
+A control key works whenever nothing is playing. During a song it is a
+note instead when the song plays that key, in a hand you play, from 2 s
+before to 3 s after where the song is (song time; Follow lights notes up
+to 1.5 s ahead) — so a real note is never taken for a command, but a key
+the song only uses elsewhere still works. (Checking the whole song, as
+before, left F1 dead in 15 % of the 2449 songs and G1 in 24 %.) When a
+control key is taken as a note, the serial log says so ("control key F1
+is a note here (−0.3 s)"); pause first (C1) and it works. The pressed key's LED blinks once
 and the screen, if any, shows what it did; song changes open the Play
 page (small boards: the play screen). "Categories" are the library's
 top-level folders in library order (儿时回忆 → 影视剧场 → 流行空间 →
@@ -530,8 +532,9 @@ piano-core: smf · song · engine · usbmidi · blemidi · library · search ·
   moved plus NimBLE's buffer pools; a NimBLE self-reset is logged too.
 * **Piano-key remote** (`piano_core::controls`, `player.rs`, `browse.rs`):
   the player checks every key press against the control map — any time
-  nothing plays, mid-song only for keys the loaded song never uses (a
-  per-song table built at load) — lights the key for 600 ms, keeps the
+  nothing plays, mid-song only if the song has no note of that key, in the
+  learner's hands, within −2…+3 s of its position (`controls::note_near`,
+  a binary search into the sorted notes) — lights the key for 600 ms, keeps the
   press (and its release) from the engine and hands the control to the
   UI over a channel. Each UI class applies it its own way (full UI: opens
   the song's folder in the library and the Play page; mini: the play
@@ -705,7 +708,9 @@ folder stepping). Not yet tried: shuffle's automatic next song on the
 small and headless boards. Tab5 (microSD): F1 / E1 by category ✔ —
 儿时回忆 → 影视剧场 → 流行空间 → 红色歌谣 → 经典乐章 → 儿时回忆 → … (the
 first try picked from the whole library: the card's `midi/` holds only
-the JustPiano folder, now stepped into).
+the JustPiano folder, now stepped into). Mid-song window (Tab5, 山丹丹开花
+红艳艳 in Listen): F1 pressed during its F1 passage at 1:56–2:03 was a
+note each time (logged −0.3…−1.5 s), F1 at ~2:15 jumped to 经典乐章 ✔.
 
 ## Known limits / ideas
 

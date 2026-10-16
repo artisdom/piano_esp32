@@ -2,10 +2,12 @@
 //! buttons (song, category, mode, hands, tempo, bookmark), so every board can
 //! be driven from the piano alone.
 //!
-//! A control key works whenever nothing is being played, and during a song
-//! only if that song never uses the key — a real note is never taken for a
-//! command. Nearly all songs stay inside C1–C7, so in practice the keys are
-//! always there.
+//! A control key works whenever nothing is being played. During a song it
+//! is a note instead when the song plays that key, in a hand the learner
+//! plays, close to where the song is ([`NOTE_BEFORE_MS`] / [`NOTE_AFTER_MS`])
+//! — a real note is never taken for a command, and a key the song uses
+//! only somewhere else still works. (A whole-song rule left F1 dead in 15 %
+//! of the library and G1 in 24 %.)
 //!
 //! ```text
 //! low end (left hand)                    high end (right hand)
@@ -81,20 +83,38 @@ pub fn key_of(c: Control) -> Option<u8> {
     KEYS.iter().find(|k| k.1 == c).map(|k| k.0)
 }
 
-/// Keys a song plays at all (any hand).
-pub fn used_keys(song: &Song) -> [bool; 128] {
-    let mut used = [false; 128];
-    for n in &song.notes {
-        used[n.key as usize & 127] = true;
-    }
-    used
+/// Mid-song, a control key is a note if the song plays it from this long
+/// before the current position (a late learner)…
+pub const NOTE_BEFORE_MS: u32 = 2000;
+/// …to this long after it (Follow lights a note up to 1.5 s ahead, plus
+/// reaction). Song time: at 50 % tempo the window lasts twice as long.
+pub const NOTE_AFTER_MS: u32 = 3000;
+
+/// Where the song is, for [`press`]: the song, its position (song ms) and
+/// the hands the learner plays.
+pub type Playing<'a> = (&'a Song, u32, HandSel);
+
+/// The note of `key` the learner may be playing at `pos_ms`: its start
+/// relative to `pos_ms` (ms, negative = already started), the nearest one
+/// in the window, only in `hands`.
+pub fn note_near(song: &Song, key: u8, pos_ms: u32, hands: HandSel) -> Option<i64> {
+    let from = pos_ms.saturating_sub(NOTE_BEFORE_MS);
+    let to = pos_ms.saturating_add(NOTE_AFTER_MS);
+    let first = song.notes.partition_point(|n| n.start_ms < from);
+    song.notes[first..]
+        .iter()
+        .take_while(|n| n.start_ms <= to)
+        .filter(|n| n.key == key && hands.includes(n.hand))
+        .map(|n| n.start_ms as i64 - pos_ms as i64)
+        .min_by_key(|d| d.abs())
 }
 
 /// What a press of `key` means: a control if the key is one and either
-/// nothing is being played (`busy` false) or the song never uses it.
-pub fn press(key: u8, busy: bool, used: Option<&[bool; 128]>) -> Option<Control> {
+/// nothing is being played (`playing` None) or the song has no note of
+/// that key near its position ([`note_near`]).
+pub fn press(key: u8, playing: Option<Playing>) -> Option<Control> {
     let c = control(key)?;
-    if busy && used.is_some_and(|u| u[key as usize & 127]) {
+    if playing.is_some_and(|(song, pos, hands)| note_near(song, key, pos, hands).is_some()) {
         return None;
     }
     Some(c)

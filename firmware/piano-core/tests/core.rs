@@ -868,7 +868,7 @@ fn notation_engraves_library() {
 }
 
 #[test]
-fn control_keys_map_and_yield_to_the_song() {
+fn control_keys_map_and_yield_to_nearby_notes() {
     assert_eq!(controls::control(21), Some(Control::PrevSong));
     assert_eq!(controls::control(105), Some(Control::Mode(Mode::Follow)));
     assert_eq!(controls::control(60), None);
@@ -878,14 +878,34 @@ fn control_keys_map_and_yield_to_the_song() {
         assert!((21..=108).contains(k));
         assert!(controls::KEYS[i + 1..].iter().all(|o| o.0 != *k && o.1 != *c));
     }
-    // A song that uses A0: A0 is a note while it plays, a control otherwise.
-    let lh = vec![(0, vec![0x90, 21, 60]), (480, vec![0x80, 21, 0])];
+    // A left-hand part with A0 at the start and F1 much later: mid-song a
+    // control key is a note only near a note of that key, in a hand the
+    // learner plays; when nothing plays it is always a control.
+    let lh = vec![
+        (0, vec![0x90, 21, 60]),
+        (480, vec![0x80, 21, 0]),
+        (9600, vec![0x90, 29, 60]),
+        (480, vec![0x80, 29, 0]),
+    ];
     let s = Song::parse(&smf_bytes(&[("Piano left", lh)])).unwrap();
-    let used = controls::used_keys(&s);
-    assert_eq!(controls::press(21, true, Some(&used)), None);
-    assert_eq!(controls::press(21, false, Some(&used)), Some(Control::PrevSong));
-    assert_eq!(controls::press(23, true, Some(&used)), Some(Control::NextSong));
-    assert_eq!(controls::press(60, false, None), None);
+    let f1 = s.notes.iter().find(|n| n.key == 29).unwrap();
+    assert_eq!(f1.hand, Hand::Left);
+    let f1_ms = f1.start_ms;
+    assert!(f1_ms >= controls::NOTE_BEFORE_MS + controls::NOTE_AFTER_MS + 1000);
+    let at = |pos: u32, hands: HandSel| Some((&s, pos, hands));
+    assert_eq!(controls::press(21, None), Some(Control::PrevSong));
+    assert_eq!(controls::press(21, at(0, HandSel::Both)), None);
+    assert_eq!(controls::press(21, at(controls::NOTE_BEFORE_MS + 1, HandSel::Both)), Some(Control::PrevSong));
+    assert_eq!(controls::press(21, at(0, HandSel::Right)), Some(Control::PrevSong));
+    // F1 is far ahead at the start, a note once it comes near.
+    assert_eq!(controls::press(29, at(0, HandSel::Both)), Some(Control::NextCategory));
+    let near = f1_ms - controls::NOTE_AFTER_MS + 500;
+    assert_eq!(controls::press(29, at(near, HandSel::Left)), None);
+    assert_eq!(controls::note_near(&s, 29, near, HandSel::Left), Some((controls::NOTE_AFTER_MS - 500) as i64));
+    assert_eq!(controls::press(29, at(f1_ms + controls::NOTE_BEFORE_MS + 1, HandSel::Both)), Some(Control::NextCategory));
+    // A key the song never plays, and a non-control key.
+    assert_eq!(controls::press(23, at(0, HandSel::Both)), Some(Control::NextSong));
+    assert_eq!(controls::press(60, None), None);
 }
 
 #[test]
