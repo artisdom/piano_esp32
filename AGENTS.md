@@ -104,7 +104,11 @@ Board quirks worth knowing:
   WROVER-KIT (2026-10-16).
 * **YD-ESP32-S3**: the OTG port supplies the piano's VBUS only with the
   "USB-OTG" solder jumper bridged (it is on the bench unit). Console is UART0
-  via the CH343 because the native USB PHY belongs to the OTG host.
+  via the CH343 because the native USB PHY belongs to the OTG host. Holding
+  RTS (pyserial `rts=True`) keeps it in reset — handy for USB-attach tests.
+* **Piano USB queue** (all USB boards): key presses made while no host
+  reads the piano's USB port arrive in one burst at attach; `usb_midi.rs`
+  drops key events for 500 ms after attach (`STALE_MS`).
 
 ## Building, flashing, testing
 

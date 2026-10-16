@@ -427,7 +427,12 @@ piano-core: smf · song · engine · usbmidi · blemidi · library · search ·
   descriptor for Audio/MIDI-Streaming (class 1/3) and its bulk endpoints,
   keeps one IN transfer queued, and sends OUT as USB-MIDI event packets,
   **at most 8 per transfer, 12 ms apart** under backlog (the piano drops
-  events from large bursts; all 88 LEDs light with this pacing).
+  events from large bursts; all 88 LEDs light with this pacing). The
+  piano queues key presses on its USB port while no host reads it (the
+  board resetting, flashing, another link in use) and delivers the queue
+  as soon as one does; key events in the first 500 ms after attach are
+  dropped (`STALE_MS`, logged as one total), else stale F1 / E1 presses
+  jumped through songs at connect.
 * **BLE MIDI**: C6 controller (needs ESP-Hosted slave firmware with BT;
   this Tab5 runs 2.12.11, the factory 0.0.0 image has none) + NimBLE host.
   It scans for `GZUT-MIDI` or the MIDI service UUID, connects, exchanges
@@ -692,6 +697,9 @@ USB-C OTG port (`CHMidi-2.3`, 5022:0716) and over BLE at once, Learn on
 the song carries on, plugging it back switches to USB, BOOT tap / double
 tap / hold, RGB LED colours, the web page, folder list and pinyin search
 from a PC (song pack: 2449 songs, 9.1 MB) ✔; app 2.5 MB of 4 MB.
+Stale USB queue (2026-10-16): F1 pressed while the board was held in
+reset for 20 s — 14 and then 27 queued key events dropped at attach, no
+song changes, boot song started; a live F1 afterwards changed category ✔.
 
 Piano-key remote (Tab5 over Bluetooth): boots into Follow with a random
 儿时回忆 song that starts when the piano connects; every control key

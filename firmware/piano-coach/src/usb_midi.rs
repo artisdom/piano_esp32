@@ -14,6 +14,12 @@
 //! 20 ms gaps all lit — doc/GZUT_piano_protocol.md §2.1). Each transfer
 //! carries at most [`MAX_EVENTS_PER_XFER`] events and transfers are spaced by
 //! [`XFER_GAP`] while a backlog exists.
+//!
+//! IN: the piano queues key presses on its USB port while nothing reads it
+//! (another link in use, the board flashing or booting) and hands the whole
+//! queue over the moment a host starts reading — on the YD-ESP32-S3 that
+//! was five F1 and an E1 within 30 ms, each a song change. Key events in
+//! the first [`STALE_MS`] after attaching are dropped.
 
 use std::ffi::c_void;
 use std::sync::atomic::Ordering;
@@ -30,6 +36,9 @@ use crate::link::{KeyEvent, Status};
 pub const MAX_EVENTS_PER_XFER: usize = 8;
 pub const XFER_GAP: Duration = Duration::from_millis(12);
 const MPS: usize = 64;
+/// Key events arriving this soon after attach are the piano's queue from
+/// before (the backlog came within 30 ms); a real press is rarely lost.
+const STALE_MS: u64 = 500;
 
 struct Dev {
     handle: bsp::usb_device_handle_t,
@@ -51,6 +60,10 @@ struct Ctx {
     decoder: usbmidi::Decoder,
     keys: Sender<KeyEvent>,
     status: Arc<Status>,
+    /// Key events before this are stale ([`STALE_MS`]).
+    fresh_from: Instant,
+    /// Stale key events dropped since attach (logged once, after).
+    stale_dropped: u32,
 }
 
 unsafe extern "C" fn client_cb(msg: *const bsp::usb_host_client_event_msg_t, arg: *mut c_void) {
@@ -72,7 +85,10 @@ unsafe extern "C" fn in_cb(xfer: *mut bsp::usb_transfer_t) {
         let data = core::slice::from_raw_parts(x.data_buffer, x.actual_num_bytes as usize);
         let keys = &ctx.keys;
         let status = &ctx.status;
+        let stale = Instant::now() < ctx.fresh_from;
+        let dropped = &mut ctx.stale_dropped;
         ctx.decoder.feed(data, |m| match m {
+            Incoming::Short(b) if stale && b.len() >= 3 && b[0] & 0xe0 == 0x80 => *dropped += 1,
             Incoming::Short(b) if b.len() >= 3 && b[0] & 0xf0 == 0x90 && b[2] > 0 => {
                 let _ = keys.send(KeyEvent::Down { key: b[1], vel: b[2] });
             }
@@ -227,6 +243,8 @@ unsafe fn attach(ctx: &mut Ctx, addr: u8) {
     *ctx.status.name.lock().unwrap() = name;
     ctx.status.connected.store(true, Ordering::SeqCst);
     ctx.decoder = usbmidi::Decoder::default();
+    ctx.fresh_from = Instant::now() + Duration::from_millis(STALE_MS);
+    ctx.stale_dropped = 0;
     ctx.dev = Some(Dev {
         handle,
         iface,
@@ -279,6 +297,8 @@ unsafe fn client_task(out: Receiver<[u8; 3]>, keys: Sender<KeyEvent>, status: Ar
         decoder: usbmidi::Decoder::default(),
         keys,
         status,
+        fresh_from: Instant::now(),
+        stale_dropped: 0,
     }));
     let mut cfg: bsp::usb_host_client_config_t = core::mem::zeroed();
     cfg.is_synchronous = false;
@@ -309,6 +329,10 @@ unsafe fn client_task(out: Receiver<[u8; 3]>, keys: Sender<KeyEvent>, status: Ar
             }
         }
         try_detach(ctx);
+        if ctx.stale_dropped > 0 && Instant::now() >= ctx.fresh_from {
+            info!("usb-midi: dropped {} key events the piano queued before we connected", ctx.stale_dropped);
+            ctx.stale_dropped = 0;
+        }
 
         while let Ok(m) = out.try_recv() {
             backlog.push_back(m);
