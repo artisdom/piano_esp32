@@ -954,10 +954,11 @@ fn control(c: Control, app: &mut App, ctx: &Ctx) -> (bool, String) {
             }
             n
         }
-        (Control::PrevFolder | Control::NextFolder, Some(_)) => {
-            let d = if c == Control::NextFolder { 1 } else { -1 };
-            let dir = current.as_deref().and_then(|p| browse::folder_step(&root, p.parent()?, d));
-            app.shuffle = dir.and_then(|d| browse::FolderShuffle::start(&d, None));
+        (Control::PrevCategory | Control::NextCategory, Some(_)) => {
+            // A random song of the next category, shuffling its folder.
+            let d = if c == Control::NextCategory { 1 } else { -1 };
+            let song = current.as_deref().and_then(|p| browse::category_song(&root, p, d));
+            app.shuffle = song.as_deref().and_then(|s| browse::FolderShuffle::start(s.parent()?, Some(s)));
             app.shuffle.as_ref().and_then(|sh| {
                 msg = shuffle_msg(sh);
                 sh.current()
@@ -966,11 +967,9 @@ fn control(c: Control, app: &mut App, ctx: &Ctx) -> (bool, String) {
         (Control::PrevSong | Control::NextSong, None) => {
             current.and_then(|p| browse::song_step(&p, if c == Control::NextSong { 1 } else { -1 }))
         }
-        (Control::PrevFolder | Control::NextFolder, None) => current.and_then(|p| {
-            let dir = p.parent()?.to_path_buf();
-            browse::folder_step(&root, &dir, if c == Control::NextFolder { 1 } else { -1 })
-                .and_then(|d| browse::random_song(&d))
-        }),
+        (Control::PrevCategory | Control::NextCategory, None) => {
+            current.and_then(|p| browse::category_song(&root, &p, if c == Control::NextCategory { 1 } else { -1 }))
+        }
         (Control::RandomSong, _) => current.and_then(|p| browse::random_song(p.parent()?)),
         _ => None,
     };

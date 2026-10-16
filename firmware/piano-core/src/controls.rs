@@ -1,5 +1,5 @@
 //! Piano-key remote control: the lowest and highest keys of the 88 act as
-//! buttons (song, folder, mode, hands, tempo, bookmark), so every board can
+//! buttons (song, category, mode, hands, tempo, bookmark), so every board can
 //! be driven from the piano alone.
 //!
 //! A control key works whenever nothing is being played, and during a song
@@ -15,15 +15,20 @@
 //! C1  play / pause                       G7  Learn
 //! C#1 tempo +10 %                        A7  Follow
 //! D1  restart the song                   B7  Listen
-//! E1  previous folder (random song)      C8  bookmark the song
-//! F1  next folder (random song)
+//! E1  previous category (random song)    C8  bookmark the song
+//! F1  next category (random song)
 //! G1  random song in this folder
 //! G#1 shuffle-play this folder (on / off)
 //! ```
 //!
 //! Shuffle-play ([`Shuffle`]) plays every song of the folder once, in random
 //! order, one after another; B0 / A0 then skip within that order, E1 / F1
-//! shuffle the new folder, and choosing a song any other way ends it.
+//! jump to a random song of the next / previous category and shuffle its
+//! folder, and choosing a song any other way ends it.
+//!
+//! Categories are the library's top-level folders (儿时回忆, 影视剧场, …):
+//! below them the folders are often one film or composer with a single
+//! song, so stepping those felt like stepping songs.
 
 use crate::engine::Mode;
 use crate::song::{HandSel, Song};
@@ -34,8 +39,8 @@ pub enum Control {
     NextSong,
     PlayPause,
     Restart,
-    PrevFolder,
-    NextFolder,
+    PrevCategory,
+    NextCategory,
     RandomSong,
     ShuffleFolder,
     TempoDown,
@@ -53,8 +58,8 @@ pub const KEYS: [(u8, Control); 17] = [
     (24, Control::PlayPause), // C1
     (25, Control::TempoUp),   // C#1
     (26, Control::Restart),   // D1
-    (28, Control::PrevFolder), // E1
-    (29, Control::NextFolder), // F1
+    (28, Control::PrevCategory), // E1
+    (29, Control::NextCategory), // F1
     (31, Control::RandomSong), // G1
     (32, Control::ShuffleFolder), // G#1
     (98, Control::Hands(HandSel::Left)),   // D7
@@ -102,8 +107,8 @@ pub fn label(c: Control) -> &'static str {
         Control::NextSong => "Next song",
         Control::PlayPause => "Play / pause",
         Control::Restart => "Restart",
-        Control::PrevFolder => "Previous folder",
-        Control::NextFolder => "Next folder",
+        Control::PrevCategory => "Previous category",
+        Control::NextCategory => "Next category",
         Control::RandomSong => "Random song",
         Control::ShuffleFolder => "Shuffle folder",
         Control::TempoDown => "Tempo −10 %",

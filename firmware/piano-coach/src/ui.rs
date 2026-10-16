@@ -1055,10 +1055,11 @@ pub fn run(ctx: Ctx) -> anyhow::Result<()> {
                     }
                     n
                 }
-                (Control::PrevFolder | Control::NextFolder, Some(_)) => {
-                    let d = if c == Control::NextFolder { 1 } else { -1 };
-                    let dir = current.as_deref().and_then(|p| browse::folder_step(&root, p.parent()?, d));
-                    shuffle = dir.and_then(|d| browse::FolderShuffle::start(&d, None));
+                (Control::PrevCategory | Control::NextCategory, Some(_)) => {
+                    // A random song of the next category, shuffling its folder.
+                    let d = if c == Control::NextCategory { 1 } else { -1 };
+                    let song = current.as_deref().and_then(|p| browse::category_song(&root, p, d));
+                    shuffle = song.as_deref().and_then(|s| browse::FolderShuffle::start(s.parent()?, Some(s)));
                     shuffle.as_ref().and_then(|sh| {
                         msg = format!("Shuffle {}: {} songs", folder_title(&sh.dir.join("x")), sh.progress().1);
                         sh.current()
@@ -1068,10 +1069,9 @@ pub fn run(ctx: Ctx) -> anyhow::Result<()> {
                 Control::PrevSong | Control::NextSong => current
                     .as_deref()
                     .and_then(|p| browse::song_step(p, if c == Control::NextSong { 1 } else { -1 })),
-                Control::PrevFolder | Control::NextFolder => current.as_deref().and_then(|p| {
-                    browse::folder_step(&root, p.parent()?, if c == Control::NextFolder { 1 } else { -1 })
-                        .and_then(|d| browse::random_song(&d))
-                }),
+                Control::PrevCategory | Control::NextCategory => current
+                    .as_deref()
+                    .and_then(|p| browse::category_song(&root, p, if c == Control::NextCategory { 1 } else { -1 })),
                 Control::RandomSong => current.as_deref().and_then(|p| browse::random_song(p.parent()?)),
                 _ => None,
                 },

@@ -142,8 +142,8 @@ work as buttons — no screen or phone needed:
 | **C1** | play / pause | **G7** | Learn |
 | **C#1** | tempo +10 % | **A7** | Follow |
 | **D1** | restart the song | **B7** | Listen |
-| **E1** | previous folder, random song | **C8** | bookmark the song (Tab5 / Korvo) |
-| **F1** | next folder, random song | | |
+| **E1** | previous category, random song | **C8** | bookmark the song (Tab5 / Korvo) |
+| **F1** | next category, random song | | |
 | **G1** | random song in this folder | | |
 | **G#1** | shuffle-play this folder (on / off) | | |
 
@@ -151,16 +151,21 @@ A control key works whenever nothing is playing, and during a song only if
 that song never uses the key, so a real note is never taken for a command
 (nearly all songs stay inside C1–C7). The pressed key's LED blinks once
 and the screen, if any, shows what it did; song changes open the Play
-page (small boards: the play screen). "Folders" are the folders that hold
-songs, in library order (e.g. 儿时回忆 → 红色歌谣 → … → the next artist
-folder), wrapping around at the end. The map is `piano_core::controls`.
+page (small boards: the play screen). "Categories" are the library's
+top-level folders in library order (儿时回忆 → 影视剧场 → 流行空间 →
+红色歌谣 → 经典乐章 on the full library), wrapping around at the end; E1 /
+F1 pick a song from anywhere in the category, every song equally likely.
+(They used to step the folders that hold songs, but below the categories
+those are often one film or composer with a single song, so it felt like
+stepping songs.) The map is `piano_core::controls`.
 
 **Shuffle-play** (G#1, or the phone page's 🔀 button on headless boards)
 plays every song of the current folder once, in random order, one after
 another — the song playing when you switch it on comes first, and each
 next one starts about 2.5 s after the last ends (in Learn, when you finish
-it). While it is on, B0 / A0 skip forward / back in that order and E1 /
-F1 shuffle the next / previous folder instead. It ends when every song has
+it). While it is on, B0 / A0 skip forward / back in that order, and E1 /
+F1 pick a random song of the next / previous category and shuffle its
+folder. It ends when every song has
 played, on G#1 again, or when you pick a song any other way (G1, the
 screen, the phone page). Toasts show "Shuffle 3 / 41"; the phone page
 shows it next to the play state.
@@ -529,8 +534,10 @@ piano-core: smf · song · engine · usbmidi · blemidi · library · search ·
   the song's folder in the library and the Play page; mini: the play
   screen; headless: the `Coach`); song and folder moves are shared in
   `browse.rs`, which sees the card or the song pack as one folder tree
-  (next / previous song, depth-first next / previous folder holding
-  songs, random song, the 儿时回忆 boot song, and `FolderShuffle`, which
+  (next / previous song, next / previous top-level category with a song
+  drawn by the song counts below it — exact from the pack's per-folder
+  totals, from the "（41）" in folder names on a card — random song, the
+  儿时回忆 boot song, and `FolderShuffle`, which
   watches the player's state and loaded song to start the next shuffled
   one and notices when another song was loaded). Every board boots with
   `player::boot_options()` (the saved options in Follow) and starts the

@@ -185,9 +185,9 @@ tools/songs.sh <board> flash --port /dev/ttyXXX --baud 921600
   learner hits goes soft at 40 % velocity as a guide, back to full after
   `FOLLOW_IDLE_MS` = 4 s without hits; only active hands are scored).
 * **Piano-key remote** (`piano-core/src/controls.rs`, every board + Android):
-  A0/B0 song, A#0/C#1 tempo, C1 play/pause, D1 restart, E1/F1 folder (random
-  song), G1 random, G#1 shuffle-play folder, D7/E7/F7 hands, G7/A7/B7 mode,
-  C8 bookmark. A control key works when nothing plays, mid-song only if the
+  A0/B0 song, A#0/C#1 tempo, C1 play/pause, D1 restart, E1/F1 category
+  (random song from a top-level folder), G1 random, G#1 shuffle-play
+  folder, D7/E7/F7 hands, G7/A7/B7 mode, C8 bookmark. A control key works when nothing plays, mid-song only if the
   song never uses it. Every board boots in Follow with a random 儿时回忆 song
   that starts when the piano connects.
 

@@ -4,9 +4,10 @@
 //! player loads [`playable`] ones (`/pack/<index>` for pack songs).
 //!
 //! Also the moves the piano-key controls need (piano_core::controls):
-//! next / previous song in a folder, next / previous folder that holds
-//! songs (depth-first, library order, wrapping), a random song, the song a
-//! board starts with, and shuffle-play of a folder ([`FolderShuffle`]).
+//! next / previous song in a folder, next / previous top-level category
+//! (library order, wrapping) with a random song from anywhere in it, a
+//! random song, the song a board starts with, and shuffle-play of a folder
+//! ([`FolderShuffle`]).
 
 // Each UI class uses its own subset (the full UI keeps its own library
 // list and uses only the navigation part).
@@ -204,38 +205,80 @@ fn edge_folder(dir: &Path, d: isize, depth: u32) -> Option<PathBuf> {
     found.or_else(|| (d < 0 && !songs.is_empty()).then(|| dir.to_path_buf()))
 }
 
-/// The next (`d` > 0) or previous folder after `dir` that holds songs, in
-/// depth-first library order below `root`, wrapping around.
-pub fn folder_step(root: &Path, dir: &Path, d: isize) -> Option<PathBuf> {
-    let d = d.signum();
-    if d > 0 {
-        // A folder's own sub-folders come right after it.
-        let subs = list_dir(dir).0;
-        if let Some(f) = subs.iter().find_map(|s| edge_folder(&dir.join(s), 1, 1)) {
-            return Some(f);
-        }
+/// Songs anywhere below `dir`: exact on the song pack; on a card the
+/// "（41）" count in the folder's name, else counted.
+fn tree_songs(dir: &Path) -> u32 {
+    if let Source::Pack(p) = source() {
+        return pack_node(p, dir).map(|i| p.node(i).songs()).unwrap_or(0);
     }
-    let mut cur = dir.to_path_buf();
-    while cur != root && cur.starts_with(root) {
-        let parent = cur.parent()?.to_path_buf();
-        let name = cur.file_name()?.to_string_lossy().into_owned();
-        let (sibs, songs) = list_dir(&parent);
-        let i = sibs.iter().position(|n| *n == name).unwrap_or(0);
-        let next = if d > 0 {
-            sibs[i + 1..].iter().find_map(|s| edge_folder(&parent.join(s), 1, 1))
-        } else {
-            sibs[..i].iter().rev().find_map(|s| edge_folder(&parent.join(s), -1, 1))
-        };
-        if next.is_some() {
-            return next;
-        }
-        // Going back, the parent itself precedes its sub-folders.
-        if d < 0 && !songs.is_empty() && parent != root {
-            return Some(parent);
-        }
-        cur = parent;
+    if let Some(n) = dir.file_name().and_then(|n| library::entry(&n.to_string_lossy(), true).count) {
+        return n;
     }
-    edge_folder(root, d, 0)
+    let (dirs, songs) = list_dir(dir);
+    songs.len() as u32 + dirs.iter().map(|d| tree_songs(&dir.join(d))).sum::<u32>()
+}
+
+/// A random song anywhere below `dir`, every song about equally likely:
+/// each step down picks a sub-folder by the songs it holds.
+pub fn random_song_below(dir: &Path) -> Option<PathBuf> {
+    let mut dir = dir.to_path_buf();
+    for _ in 0..10 {
+        let (dirs, songs) = list_dir(&dir);
+        let subs: Vec<(PathBuf, u32)> = dirs
+            .iter()
+            .map(|d| {
+                let p = dir.join(d);
+                let n = tree_songs(&p);
+                (p, n)
+            })
+            .collect();
+        let total = songs.len() as u32 + subs.iter().map(|s| s.1).sum::<u32>();
+        if total == 0 {
+            return None;
+        }
+        let mut r = random(total as usize) as u32;
+        if (r as usize) < songs.len() {
+            return Some(dir.join(&songs[r as usize]));
+        }
+        r -= songs.len() as u32;
+        let mut next = None;
+        for (p, n) in subs {
+            if r < n {
+                next = Some(p);
+                break;
+            }
+            r -= n;
+        }
+        dir = next?;
+    }
+    None
+}
+
+/// The next (`d` > 0) or previous top-level category (a folder right below
+/// `root` that holds songs) after the one `path` is in, wrapping around.
+/// The piano's E1 / F1: the library's deeper folders are often a single
+/// film or composer with one song, so stepping those felt like stepping
+/// songs.
+pub fn category_step(root: &Path, path: &Path, d: isize) -> Option<PathBuf> {
+    let cats: Vec<PathBuf> =
+        list_dir(root).0.iter().map(|c| root.join(c)).filter(|c| tree_songs(c) > 0).collect();
+    if cats.is_empty() {
+        return None;
+    }
+    let mine = path.strip_prefix(root).ok().and_then(|r| r.components().next()).map(|c| root.join(c));
+    let n = cats.len() as isize;
+    let i = match mine.and_then(|m| cats.iter().position(|c| *c == m)) {
+        Some(i) => (i as isize + d.signum()).rem_euclid(n),
+        None if d > 0 => 0,
+        None => n - 1,
+    };
+    Some(cats[i as usize].clone())
+}
+
+/// E1 / F1: a random song from the previous / next category.
+pub fn category_song(root: &Path, path: &Path, d: isize) -> Option<PathBuf> {
+    let cat = category_step(root, path, d)?;
+    random_song_below(&cat).or_else(|| edge_folder(&cat, 1, 0).and_then(|f| random_song(&f)))
 }
 
 /// A folder below `root` (breadth-first, a few levels) whose display title

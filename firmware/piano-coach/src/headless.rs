@@ -249,9 +249,9 @@ impl Coach {
         });
     }
 
-    /// A random song from the next / previous folder holding songs.
-    fn folder(&mut self, d: isize) {
-        let next = browse::folder_step(&self.root, &self.dir, d).and_then(|dir| browse::random_song(&dir));
+    /// A random song from the next / previous category.
+    fn category(&mut self, d: isize) {
+        let next = browse::category_song(&self.root, &self.dir, d);
         match next {
             Some(p) => self.select(&p, true),
             None => self.tone(&[48, 43], 120),
@@ -276,10 +276,11 @@ impl Coach {
                     }
                     return;
                 }
-                Control::PrevFolder | Control::NextFolder => {
-                    let d = if c == Control::NextFolder { 1 } else { -1 };
-                    let dir = browse::folder_step(&self.root, &self.dir, d);
-                    self.shuffle = dir.and_then(|d| browse::FolderShuffle::start(&d, None));
+                Control::PrevCategory | Control::NextCategory => {
+                    // A random song of the next category, shuffling its folder.
+                    let d = if c == Control::NextCategory { 1 } else { -1 };
+                    let song = browse::category_song(&self.root, &self.dir, d);
+                    self.shuffle = song.as_deref().and_then(|s| browse::FolderShuffle::start(s.parent()?, Some(s)));
                     if let Some(p) = self.shuffle.as_ref().and_then(|sh| sh.current()) {
                         self.select(&p, true);
                     }
@@ -293,8 +294,8 @@ impl Coach {
             Control::NextSong => self.step(1),
             Control::PlayPause => self.play_pause(),
             Control::Restart => self.restart(),
-            Control::PrevFolder => self.folder(-1),
-            Control::NextFolder => self.folder(1),
+            Control::PrevCategory => self.category(-1),
+            Control::NextCategory => self.category(1),
             Control::RandomSong => {
                 if let Some(p) = browse::random_song(&self.dir) {
                     self.select(&p, true);
