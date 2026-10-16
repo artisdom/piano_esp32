@@ -40,6 +40,8 @@ with the firmware's own UI code, fonts and engraver from the real song library.
 
 ## Documents
 
+* [AGENTS.md](AGENTS.md) — orientation for AI agents and new contributors:
+  boards and ports, build/flash/test commands, hardware quirks, conventions.
 * [doc/piano_coach_firmware.md](doc/piano_coach_firmware.md) — **Piano Coach**:
   using it, building and flashing every board, architecture, what was
   verified on hardware (`firmware/piano-coach`, `firmware/piano-core`;
