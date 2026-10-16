@@ -100,7 +100,8 @@ Board quirks worth knowing:
   the piano's packets to NimBLE after ~24 (the host's ACL buffer count),
   so key presses stop a second into playing, the link drops (0x208) and
   reconnects fail discovery until a reset. Found with the drop/pool
-  logging in `ble_midi.rs`; fixed and verified on the CYD (2026-10-16).
+  logging in `ble_midi.rs`; fixed and verified on the CYD and the Audio
+  Kit (2026-10-16), WROVER-KIT not re-tried.
 * **YD-ESP32-S3**: the OTG port supplies the piano's VBUS only with the
   "USB-OTG" solder jumper bridged (it is on the bench unit). Console is UART0
   via the CH343 because the native USB PHY belongs to the OTG host.
@@ -211,7 +212,7 @@ tools/songs.sh <board> flash --port /dev/ttyXXX --baud 921600
 ## State (2026-10-16) and open ends
 
 * Original-ESP32 BLE drops fixed (host flow control off; verified on the
-  CYD, WROVER-KIT and Audio Kit not re-tried). An nRF52840 dongle (Nordic
+  CYD and Audio Kit, WROVER-KIT not re-tried). An nRF52840 dongle (Nordic
   Open DFU bootloader) is on USB too — could become a BLE sniffer.
 * Latest firmware commits: YD-ESP32-S3 port (aed283e), adaptive Follow
   (37abc72), piano-key remote + boot song (12625bf), shuffle-play (230d3be).

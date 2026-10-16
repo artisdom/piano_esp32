@@ -658,8 +658,11 @@ touch, 776 songs, the boot song in Follow ✔. BLE under two-way traffic
 after ~17 notifications, ~1 s into playing, and the link dropped 10 s
 later; with it off, 14 minutes of Follow with both hands and song
 changes from the piano (1869 notifications in, 6167 writes out) without
-a drop, no busy retries, RSSI −60 dBm ✔. The WROVER-KIT and Audio Kit carry the
-same setting but were not re-tried.
+a drop, no busy retries, RSSI −60 dBm ✔. Audio Kit, same test with
+flow control off: 3½ minutes, four songs started from the piano, 542
+notifications in, 1888 writes out, no drop or busy retry at a weak
+−86…−94 dBm ✔ (before, it dropped the same way as the CYD). The
+WROVER-KIT carries the same setting but was not re-tried.
 
 LILYGO T-Display-S3 (ESP32-S3R8 rev 0.2, no touch): display (8-bit
 parallel ST7789, vendor init sequence) right way up and in colour, 2449
