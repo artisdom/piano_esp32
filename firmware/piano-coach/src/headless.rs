@@ -3,8 +3,10 @@
 //! speaker (if it has one), its status LED and the piano's own LEDs for
 //! feedback, plus a Wi-Fi web page (`web.rs`) to browse and search the
 //! library and pick a song. The library is the microSD card, or on boards
-//! without one the flash song pack, shown as the same folder tree under
-//! [`PACK_ROOT`].
+//! without one the flash song pack (see `browse.rs`).
+//!
+//! The board starts in Follow mode with a random song from 儿时回忆, which
+//! begins as soon as the piano is connected.
 //!
 //! [`Coach`] holds what the user chose — the playlist (the current song's
 //! folder), the song, mode, hands, tempo and speaker settings — and turns
@@ -26,23 +28,23 @@
 //! Status LED: blinking while the piano is not connected, on while it is —
 //! an RGB LED shows green for USB, blue for Bluetooth.
 //!
-//! The piano's lowest white keys, while nothing plays: A0 previous song,
-//! B0 next song, C1 play / pause, D1 stop.
+//! The piano's lowest and highest keys are a remote control
+//! (piano_core::controls): songs, folders, mode, hands, tempo.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::{Receiver, Sender};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use log::{info, warn};
 use piano_core::engine::{Mode, Options, State};
-use piano_core::library;
-use piano_core::search::{Index, SongRef};
-use piano_core::songpack::Pack;
+use piano_core::controls::Control;
+use piano_core::search::Index;
 use piano_core::song::HandSel;
 
 use crate::board::{self, Button};
+use crate::browse::{self, library_root, list_dir};
 use crate::link::Status;
 use crate::player::{self, Cmd, Shared, SharedSynth};
 use crate::prefs;
@@ -51,133 +53,10 @@ pub struct Ctx {
     pub cmds: Sender<Cmd>,
     pub shared: Shared,
     pub status: Arc<Status>,
-    pub nav: Receiver<u8>,
+    /// Piano-key controls (piano_core::controls).
+    pub controls: Receiver<Control>,
     pub synth: Option<SharedSynth>,
     pub sd_ok: bool,
-}
-
-/// Virtual root of the song pack's folder tree.
-pub const PACK_ROOT: &str = "/songs";
-
-/// Where the library lives.
-#[cfg_attr(has_sd, allow(dead_code))] // card boards never build the pack
-enum Source {
-    Card,
-    Pack(&'static Pack<'static>),
-}
-
-fn source() -> &'static Source {
-    static SOURCE: OnceLock<Source> = OnceLock::new();
-    SOURCE.get_or_init(|| {
-        #[cfg(not(has_sd))]
-        if let Ok(p) = crate::songs::open_pack() {
-            return Source::Pack(p);
-        }
-        Source::Card
-    })
-}
-
-/// The pack node at a path under [`PACK_ROOT`].
-fn pack_node(pack: &Pack, path: &Path) -> Option<u32> {
-    let rel = path.strip_prefix(PACK_ROOT).ok()?;
-    let mut node = pack.root();
-    for part in rel.components() {
-        let name = part.as_os_str().to_str()?;
-        if !node.is_dir() {
-            return None;
-        }
-        node = node.children().map(|i| pack.node(i)).find(|n| n.name == name)?;
-    }
-    Some(node.index)
-}
-
-/// A song file (card) or song entry (pack) at `path`.
-pub fn is_song(path: &Path) -> bool {
-    match source() {
-        Source::Card => path.is_file(),
-        Source::Pack(p) => pack_node(p, path).is_some_and(|i| !p.node(i).is_dir()),
-    }
-}
-
-/// What the player loads for the song at `path` (pack: `/pack/<index>`).
-fn playable(path: &Path) -> PathBuf {
-    match source() {
-        Source::Card => path.to_path_buf(),
-        #[cfg(not(has_sd))]
-        Source::Pack(p) => pack_node(p, path).map(crate::songs::pack_path).unwrap_or_default(),
-        #[cfg(has_sd)]
-        Source::Pack(_) => PathBuf::new(),
-    }
-}
-
-/// The search index over the whole library.
-fn build_index(root: &Path) -> Index {
-    match source() {
-        Source::Card => Index::build(root),
-        Source::Pack(p) => {
-            let mut songs: Vec<SongRef> = p
-                .songs()
-                .into_iter()
-                .map(|i| {
-                    let path = Path::new(PACK_ROOT).join(p.path(i));
-                    let folder = p.node(p.node(i).parent).name;
-                    SongRef::new(path, library::entry(folder, true).title)
-                })
-                .filter(|s| s.path.starts_with(root))
-                .collect();
-            songs.sort_by(|a, b| library::natural_cmp(&a.title, &b.title));
-            Index { songs }
-        }
-    }
-}
-
-/// The library root: a top-level `midi/` folder if there is one (as on the
-/// full boards).
-pub fn library_root() -> PathBuf {
-    let mut root = match source() {
-        Source::Pack(_) => PathBuf::from(PACK_ROOT),
-        Source::Card => ["/sdcard/midi", "/sdcard/MIDI"]
-            .iter()
-            .map(PathBuf::from)
-            .find(|p| p.is_dir())
-            .unwrap_or_else(|| PathBuf::from("/sdcard")),
-    };
-    // A library that is one folder (e.g. "JustPiano2-20160326/") starts
-    // inside it, so the web page opens on its categories.
-    for _ in 0..4 {
-        let (dirs, songs) = list_dir(&root);
-        match (dirs.as_slice(), songs.is_empty()) {
-            ([only], true) => root = root.join(only),
-            _ => break,
-        }
-    }
-    root
-}
-
-/// Sub-folders and songs (sorted) of a folder.
-pub fn list_dir(dir: &Path) -> (Vec<String>, Vec<String>) {
-    if let Source::Pack(p) = source() {
-        // Pack folders are stored in library order already.
-        let Some(node) = pack_node(p, dir).map(|i| p.node(i)).filter(|n| n.is_dir()) else {
-            return Default::default();
-        };
-        let (mut dirs, mut songs) = (Vec::new(), Vec::new());
-        for n in node.children().map(|i| p.node(i)) {
-            if n.is_dir() { &mut dirs } else { &mut songs }.push(n.name.to_string());
-        }
-        return (dirs, songs);
-    }
-    let mut entries: Vec<library::Entry> = std::fs::read_dir(dir)
-        .map(|rd| {
-            rd.flatten()
-                .map(|e| library::entry(&e.file_name().to_string_lossy(), e.path().is_dir()))
-                .collect()
-        })
-        .unwrap_or_default();
-    entries = library::sort_entries(entries);
-    let dirs = entries.iter().filter(|e| e.is_dir).map(|e| e.name.clone()).collect();
-    let songs = entries.iter().filter(|e| !e.is_dir).map(|e| e.name.clone()).collect();
-    (dirs, songs)
 }
 
 pub struct Coach {
@@ -209,27 +88,15 @@ impl Coach {
             dir: root.clone(),
             playlist: Vec::new(),
             index: 0,
-            opts: player::saved_options(),
+            opts: player::boot_options(),
             search: Arc::new(Mutex::new(None)),
         };
-        // The last song played, else the first folder that has songs.
-        let last = prefs::get_str("lastsong").map(|rel| root.join(rel)).filter(|p| is_song(p));
-        match last {
-            Some(p) => c.select(&p, false),
-            None => {
-                let mut d = root.clone();
-                for _ in 0..8 {
-                    let (dirs, songs) = list_dir(&d);
-                    if !songs.is_empty() || dirs.is_empty() {
-                        break;
-                    }
-                    d = d.join(&dirs[0]);
-                }
-                c.set_dir(&d);
-                if let Some(first) = c.playlist.first().cloned() {
-                    c.select(&d.join(first), false);
-                }
-            }
+        // Every boot: Follow mode and a random song from 儿时回忆 (started
+        // by `run` once the piano is there); else the last song played.
+        let start = browse::start_song(&root)
+            .or_else(|| prefs::get_str("lastsong").map(|rel| root.join(rel)).filter(|p| browse::is_song(p)));
+        if let Some(p) = start {
+            c.select(&p, false);
         }
         c
     }
@@ -260,7 +127,7 @@ impl Coach {
         let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         self.index = self.playlist.iter().position(|n| *n == name).unwrap_or(0);
         let _ = self.cmds.send(Cmd::SetOptions(self.opts));
-        let _ = self.cmds.send(Cmd::Load(playable(path)));
+        let _ = self.cmds.send(Cmd::Load(browse::playable(path)));
         prefs::set_str("lastsong", &self.rel(path));
         if start {
             let _ = self.cmds.send(Cmd::Restart);
@@ -379,6 +246,38 @@ impl Coach {
         });
     }
 
+    /// A random song from the next / previous folder holding songs.
+    fn folder(&mut self, d: isize) {
+        let next = browse::folder_step(&self.root, &self.dir, d).and_then(|dir| browse::random_song(&dir));
+        match next {
+            Some(p) => self.select(&p, true),
+            None => self.tone(&[48, 43], 120),
+        }
+    }
+
+    /// A piano-key control (piano_core::controls).
+    pub fn control(&mut self, c: Control) {
+        match c {
+            Control::PrevSong => self.step(-1),
+            Control::NextSong => self.step(1),
+            Control::PlayPause => self.play_pause(),
+            Control::Restart => self.restart(),
+            Control::PrevFolder => self.folder(-1),
+            Control::NextFolder => self.folder(1),
+            Control::RandomSong => {
+                if let Some(p) = browse::random_song(&self.dir) {
+                    self.select(&p, true);
+                }
+            }
+            Control::TempoDown => self.set_tempo(self.opts.tempo_pct as i32 - 10),
+            Control::TempoUp => self.set_tempo(self.opts.tempo_pct as i32 + 10),
+            Control::Mode(m) => self.set_mode(m),
+            Control::Hands(h) => self.set_hands(h),
+            // No bookmark list on the headless boards (yet).
+            Control::Bookmark => info!("headless: bookmarks are not kept on this board"),
+        }
+    }
+
     /// Next / previous mode, hands, sound, in the key order.
     fn next_mode(&mut self) {
         self.set_mode(match self.opts.mode {
@@ -430,7 +329,7 @@ pub fn run(ctx: Ctx) -> anyhow::Result<()> {
         };
         let _ = crate::threads::spawn_ext("index", 16 * 1024, move || {
             let t = Instant::now();
-            let idx = build_index(&root);
+            let idx = browse::build_index(&root);
             info!("headless: indexed {} songs in {:?}", idx.songs.len(), t.elapsed());
             *slot.lock().unwrap() = Some(idx);
         });
@@ -452,6 +351,7 @@ pub fn run(ctx: Ctx) -> anyhow::Result<()> {
     // A colour shown for a moment (mode change on single-key boards).
     let mut flash: Option<(Instant, [u8; 3])> = None;
     let mut shown_last = None;
+    let mut autostart = true;
     loop {
         for b in board::poll_buttons() {
             let mut c = coach.lock().unwrap();
@@ -502,13 +402,19 @@ pub fn run(ctx: Ctx) -> anyhow::Result<()> {
                 _ => {}
             }
         }
-        while let Ok(k) = ctx.nav.try_recv() {
+        while let Ok(k) = ctx.controls.try_recv() {
+            coach.lock().unwrap().control(k);
+        }
+        // The boot song starts once the piano can play it (or right away
+        // when the speaker plays the notes).
+        if autostart
+            && (ctx.status.connected.load(Ordering::Relaxed) || player::SOUND.load(Ordering::Relaxed) != player::SOUND_PIANO)
+        {
+            autostart = false;
             let mut c = coach.lock().unwrap();
-            match k {
-                player::NAV_PREV => c.step(-1),
-                player::NAV_NEXT => c.step(1),
-                player::NAV_OK => c.play_pause(),
-                _ => c.stop(),
+            if c.current().is_some() {
+                info!("headless: starting the boot song");
+                c.restart();
             }
         }
         // Status LED: on while the piano is connected (RGB: green over USB,

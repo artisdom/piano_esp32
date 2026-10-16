@@ -34,7 +34,8 @@ use piano_core::engine::{Mode, State};
 use piano_core::library::{self, fmt_time};
 use piano_core::song::{key_name, HandSel};
 
-use crate::headless::{list_dir, SharedCoach};
+use crate::browse::list_dir;
+use crate::headless::SharedCoach;
 use crate::player;
 
 /// web/index.html, gzipped by build.rs (≈ 3.5 KB instead of 11.6 KB over
@@ -385,7 +386,7 @@ pub fn start(coach: SharedCoach) -> anyhow::Result<Web> {
         let ok = param(req.uri(), "p").and_then(|r| safe_rel(&r)).map(|rel| {
             let mut co = c.lock().unwrap();
             let path = co.root.join(rel);
-            let ok = crate::headless::is_song(&path);
+            let ok = crate::browse::is_song(&path);
             if ok {
                 co.select(&path, true);
             }

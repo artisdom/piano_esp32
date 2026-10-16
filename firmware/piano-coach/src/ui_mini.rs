@@ -7,8 +7,8 @@
 //! * the board key (BOOT): tap = next, double tap = previous, hold = OK;
 //!   on the play screen tap = pause/resume, double tap = restart, hold =
 //!   back;
-//! * the piano's four lowest white keys while nothing plays: A0 ◀, B0 ▶,
-//!   C1 OK, D1 back (see `player::NAV_*`);
+//! * the piano's lowest and highest keys (piano_core::controls): songs,
+//!   folders, mode, hands, tempo — they open the play screen;
 //! * touch (round board): tap a row, swipe up/down to scroll, swipe right
 //!   to go back, tap the play screen to pause/resume.
 
@@ -19,6 +19,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use log::{info, warn};
+use piano_core::controls::{self, Control};
 use piano_core::engine::{Mode, Options, State};
 use piano_core::library::{self, fmt_time};
 use piano_core::progress::stars;
@@ -31,7 +32,7 @@ use slint::{ComponentHandle, LogicalPosition, Model, ModelRc, PhysicalSize, VecM
 use crate::board::{self, spi_lcd::SpiLcd, Button, LCD_HEIGHT, LCD_WIDTH};
 use crate::link::Status;
 use crate::player::{self, Cmd, Shared};
-use crate::{prefs, songs};
+use crate::{browse, prefs, songs};
 
 slint::include_modules!();
 
@@ -47,8 +48,8 @@ pub struct Ctx {
     pub cmds: Sender<Cmd>,
     pub shared: Shared,
     pub status: Arc<Status>,
-    /// Piano menu keys (player::NAV_*), while nothing plays.
-    pub nav: Receiver<u8>,
+    /// Piano-key controls (piano_core::controls).
+    pub controls: Receiver<Control>,
 }
 
 struct EmbeddedPlatform {
@@ -526,12 +527,21 @@ pub fn run(ctx: Ctx) -> anyhow::Result<()> {
             focus: 1,
         }],
         items: Vec::new(),
-        opts: player::saved_options(),
+        opts: player::boot_options(),
         brightness,
         playing: None,
         cmds: ctx.cmds.clone(),
     };
     app.build();
+    // Every boot: a random song from 儿时回忆 in Follow, on the play
+    // screen; it starts once the piano is connected.
+    let boot_song = app.pack.and(browse::start_song(&browse::library_root())).and_then(|p| browse::pack_entry(&p));
+    if let Some(s) = boot_song {
+        let _ = app.cmds.send(Cmd::SetOptions(app.opts));
+        let _ = app.cmds.send(Cmd::Load(songs::pack_path(s)));
+        app.playing = Some(s);
+    }
+    let mut autostart = boot_song.is_some();
 
     // Touch taps reach Slint's TouchAreas; they report back here.
     let taps: Rc<std::cell::RefCell<Vec<Nav>>> = Rc::new(Default::default());
@@ -562,7 +572,7 @@ pub fn run(ctx: Ctx) -> anyhow::Result<()> {
 
     let mut gesture = Gesture::default();
     let mut menu_dirty = true;
-    let mut on_play = false;
+    let mut on_play = boot_song.is_some();
     let mut last_rev = u64::MAX;
     let mut last_state = State::Stopped;
     let mut toast_until: Option<Instant> = None;
@@ -605,13 +615,12 @@ pub fn run(ctx: Ctx) -> anyhow::Result<()> {
                 _ => continue,
             });
         }
-        while let Ok(k) = ctx.nav.try_recv() {
-            navs.push(match k {
-                player::NAV_PREV => Nav::Prev(1),
-                player::NAV_NEXT => Nav::Next(1),
-                player::NAV_OK => Nav::Ok,
-                _ => Nav::Back,
-            });
+        while let Ok(c) = ctx.controls.try_recv() {
+            if control(c, &mut app, &ctx) {
+                on_play = true;
+                started = true;
+            }
+            show_toast(&vm, &mut toast_until, controls::label(c).into());
         }
         if board::CAPS.touch {
             if let Some(g) = gesture.feed(board::touch_point()) {
@@ -648,6 +657,12 @@ pub fn run(ctx: Ctx) -> anyhow::Result<()> {
 
         // ---- connection -------------------------------------------------------
         let connected = ctx.status.connected.load(Ordering::Relaxed);
+        if autostart && connected {
+            autostart = false;
+            let _ = ctx.cmds.send(Cmd::Restart);
+            last_rev = u64::MAX;
+            last_state = State::Stopped;
+        }
         if last_conn != Some(connected) {
             last_conn = Some(connected);
             vm.set_connected(connected);
@@ -820,6 +835,59 @@ fn log_heap(what: &str) {
 fn show_toast(vm: &MiniVM, until: &mut Option<Instant>, text: String) {
     vm.set_toast(text.into());
     *until = Some(Instant::now() + Duration::from_millis(2200));
+}
+
+/// A piano-key control. True if it started a song (open the play screen).
+fn control(c: Control, app: &mut App, ctx: &Ctx) -> bool {
+    let current = app.playing.map(|s| browse::from_playable(&songs::pack_path(s)));
+    let root = browse::library_root();
+    let next = match c {
+        Control::PrevSong | Control::NextSong => {
+            current.and_then(|p| browse::song_step(&p, if c == Control::NextSong { 1 } else { -1 }))
+        }
+        Control::PrevFolder | Control::NextFolder => current.and_then(|p| {
+            let dir = p.parent()?.to_path_buf();
+            browse::folder_step(&root, &dir, if c == Control::NextFolder { 1 } else { -1 })
+                .and_then(|d| browse::random_song(&d))
+        }),
+        Control::RandomSong => current.and_then(|p| browse::random_song(p.parent()?)),
+        _ => None,
+    };
+    let mut o = app.opts;
+    match c {
+        Control::PlayPause => {
+            let _ = ctx.cmds.send(Cmd::PlayPause);
+            return false;
+        }
+        Control::Restart => {
+            let _ = ctx.cmds.send(Cmd::Restart);
+            return app.playing.is_some();
+        }
+        Control::TempoDown | Control::TempoUp => {
+            let d = if c == Control::TempoUp { 10 } else { -10 };
+            o.tempo_pct = (o.tempo_pct as i32 + d).clamp(30, 200) as u16;
+            prefs::set_i32("tempo", o.tempo_pct as i32);
+        }
+        Control::Mode(m) => {
+            o.mode = m;
+            prefs::set_i32("mode", m as i32);
+        }
+        Control::Hands(h) => {
+            o.hands = h;
+            prefs::set_i32("hands", h as i32);
+        }
+        Control::Bookmark => info!("ui: bookmarks are not kept on the small boards"),
+        _ => {}
+    }
+    if o != app.opts {
+        app.set_opts(o);
+    }
+    let Some(s) = next.and_then(|p| browse::pack_entry(&p)) else { return false };
+    let _ = ctx.cmds.send(Cmd::SetOptions(app.opts));
+    let _ = ctx.cmds.send(Cmd::Load(songs::pack_path(s)));
+    let _ = ctx.cmds.send(Cmd::Restart);
+    app.playing = Some(s);
+    true
 }
 
 fn handle(

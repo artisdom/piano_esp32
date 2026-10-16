@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use piano_core::controls::{self, Control};
 use piano_core::engine::{Engine, Mode, Msg, Options, State, ALL_NOTES_OFF};
 use piano_core::library::{self, entry};
 use piano_core::smf;
@@ -864,4 +865,25 @@ fn notation_engraves_library() {
         }
     }
     eprintln!("engraved {n} songs into {systems} systems");
+}
+
+#[test]
+fn control_keys_map_and_yield_to_the_song() {
+    assert_eq!(controls::control(21), Some(Control::PrevSong));
+    assert_eq!(controls::control(105), Some(Control::Mode(Mode::Follow)));
+    assert_eq!(controls::control(60), None);
+    assert_eq!(controls::key_of(Control::Bookmark), Some(108));
+    // Keys are unique and inside the 88 (A0 21 … C8 108).
+    for (i, (k, c)) in controls::KEYS.iter().enumerate() {
+        assert!((21..=108).contains(k));
+        assert!(controls::KEYS[i + 1..].iter().all(|o| o.0 != *k && o.1 != *c));
+    }
+    // A song that uses A0: A0 is a note while it plays, a control otherwise.
+    let lh = vec![(0, vec![0x90, 21, 60]), (480, vec![0x80, 21, 0])];
+    let s = Song::parse(&smf_bytes(&[("Piano left", lh)])).unwrap();
+    let used = controls::used_keys(&s);
+    assert_eq!(controls::press(21, true, Some(&used)), None);
+    assert_eq!(controls::press(21, false, Some(&used)), Some(Control::PrevSong));
+    assert_eq!(controls::press(23, true, Some(&used)), Some(Control::NextSong));
+    assert_eq!(controls::press(60, false, None), None);
 }

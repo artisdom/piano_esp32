@@ -4,11 +4,12 @@
 use std::cell::{Cell, RefCell};
 use std::path::PathBuf;
 use std::rc::Rc;
-use std::sync::mpsc::Sender;
+use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use log::info;
+use piano_core::controls::{self, Control};
 use piano_core::engine::{Mode, Options, State};
 use piano_core::engine::MIN_LOOP_MS;
 use piano_core::library::{self, Entry};
@@ -20,6 +21,7 @@ use slint::platform::{Platform, PointerEventButton, WindowEvent};
 use slint::{ComponentHandle, LogicalPosition, Model, ModelRc, PhysicalSize, SharedString, VecModel};
 
 use crate::board::{self, FRAME_HEIGHT, FRAME_WIDTH};
+use crate::browse;
 use crate::link::{Status, Transport};
 use crate::player::{self, Cmd, Shared};
 use crate::prefs;
@@ -365,6 +367,8 @@ pub struct Ctx {
     pub status: Arc<Status>,
     pub transport: Transport,
     pub sd_ok: bool,
+    /// Piano-key controls (piano_core::controls).
+    pub controls: Receiver<Control>,
 }
 
 fn current_options(ui: &AppWindow) -> Options {
@@ -386,8 +390,9 @@ fn current_options(ui: &AppWindow) -> Options {
     }
 }
 
+/// Every boot starts in Follow (see browse::start_song).
 pub fn initial_options() -> Options {
-    player::saved_options()
+    player::boot_options()
 }
 
 pub fn run(ctx: Ctx) -> anyhow::Result<()> {
@@ -613,6 +618,54 @@ pub fn run(ctx: Ctx) -> anyhow::Result<()> {
             }
             GLOBE_FAVS_DIRTY.store(true, std::sync::atomic::Ordering::Relaxed);
         });
+    }
+
+    // ---- piano-key controls and the boot song --------------------------------
+    // Show `path` in the library (its folder, its row) and load it; `start`
+    // plays it at once and opens the Play page.
+    let open_song = {
+        let (w, l, st, sd, c) = (ui.as_weak(), lib.clone(), store.clone(), sd_ok.clone(), ctx.cmds.clone());
+        move |path: PathBuf, start: bool| {
+            let ui = w.unwrap();
+            {
+                let mut lb = l.borrow_mut();
+                let rel = path.parent().and_then(|d| d.strip_prefix(&lb.root).ok()).map(|r| r.to_path_buf());
+                lb.view = 0;
+                ui.global::<LibraryVM>().set_view(0);
+                lb.stack = rel
+                    .iter()
+                    .flat_map(|r| r.components())
+                    .map(|c| {
+                        let n = c.as_os_str().to_string_lossy().into_owned();
+                        let t = library::entry(&n, true).title;
+                        (n, t)
+                    })
+                    .collect();
+                let err = lb.reload().err();
+                push_library(&ui, &lb, &st.borrow(), sd.get(), err);
+                let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                if let Some(i) = lb.entries.iter().position(|e| !e.is_dir && e.name == name) {
+                    ui.global::<LibraryVM>().set_selected(i as i32);
+                }
+            }
+            let _ = c.send(Cmd::SetOptions(current_options(&ui)));
+            select_song(&ui, &st.borrow(), path, &c);
+            if start {
+                let _ = c.send(Cmd::Restart);
+                ui.global::<AppVM>().set_page(1);
+            }
+        }
+    };
+    // Every boot: a random song from 儿时回忆 in Follow, started once the
+    // piano is connected.
+    let mut autostart = false;
+    if ctx.sd_ok {
+        let root = lib.borrow().root.clone();
+        if let Some(p) = browse::start_song(&root) {
+            open_song(p, false);
+            ui.global::<AppVM>().set_page(1);
+            autostart = true;
+        }
     }
 
     // ---- callbacks: song globe ----------------------------------------------
@@ -959,8 +1012,79 @@ pub fn run(ctx: Ctx) -> anyhow::Result<()> {
             }
         }
 
+        // ---- piano-key controls ----
+        while let Ok(c) = ctx.controls.try_recv() {
+            let current = sel_path.borrow().clone();
+            let root = lib.borrow().root.clone();
+            let next = match c {
+                Control::PrevSong | Control::NextSong => current
+                    .as_deref()
+                    .and_then(|p| browse::song_step(p, if c == Control::NextSong { 1 } else { -1 })),
+                Control::PrevFolder | Control::NextFolder => current.as_deref().and_then(|p| {
+                    browse::folder_step(&root, p.parent()?, if c == Control::NextFolder { 1 } else { -1 })
+                        .and_then(|d| browse::random_song(&d))
+                }),
+                Control::RandomSong => current.as_deref().and_then(|p| browse::random_song(p.parent()?)),
+                _ => None,
+            };
+            let p = ui.global::<PlayerVM>();
+            match c {
+                Control::PlayPause => {
+                    let _ = ctx.cmds.send(Cmd::PlayPause);
+                }
+                Control::Restart => {
+                    let _ = ctx.cmds.send(Cmd::Restart);
+                    ui.global::<AppVM>().set_page(1);
+                }
+                Control::TempoDown | Control::TempoUp => {
+                    let t = (p.get_tempo() + if c == Control::TempoUp { 10 } else { -10 }).clamp(30, 200);
+                    p.set_tempo(t);
+                    prefs::set_i32("tempo", t);
+                    let _ = ctx.cmds.send(Cmd::Tempo(t as u16));
+                }
+                Control::Mode(m) => {
+                    let m = match m {
+                        Mode::Listen => 0,
+                        Mode::Learn => 1,
+                        Mode::Follow => 2,
+                    };
+                    p.set_mode(m);
+                    prefs::set_i32("mode", m);
+                    let _ = ctx.cmds.send(Cmd::SetOptions(current_options(&ui)));
+                }
+                Control::Hands(h) => {
+                    let h = match h {
+                        piano_core::song::HandSel::Both => 0,
+                        piano_core::song::HandSel::Right => 1,
+                        piano_core::song::HandSel::Left => 2,
+                    };
+                    p.set_hands(h);
+                    prefs::set_i32("hands", h);
+                    let _ = ctx.cmds.send(Cmd::SetOptions(current_options(&ui)));
+                }
+                // Same as the ☆ on the song card (it toasts the result).
+                Control::Bookmark => ui.global::<LibraryVM>().invoke_toggle_fav(),
+                _ => {}
+            }
+            if let Some(path) = next {
+                open_song(path, true);
+            }
+            if c != Control::Bookmark {
+                show_toast(controls::label(c));
+            }
+        }
+
         // ---- transport status ----
         let connected = ctx.status.connected.load(std::sync::atomic::Ordering::Relaxed);
+        // (Right away when the speaker plays the notes.)
+        if autostart
+            && (connected
+                || player::SOUND.load(std::sync::atomic::Ordering::Relaxed) != player::SOUND_PIANO)
+        {
+            autostart = false;
+            info!("ui: starting the boot song");
+            let _ = ctx.cmds.send(Cmd::Restart);
+        }
         let name = ctx.status.name.lock().unwrap().clone();
         if last_connected != Some(connected) || name != last_name {
             let a = ui.global::<AppVM>();

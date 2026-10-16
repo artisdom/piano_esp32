@@ -127,6 +127,33 @@ under the finger, for checking a touch panel), **Light all keys** / **All off** 
 piano's last panel change (volume/tone from its vendor SysEx), and SD
 **Rescan** (also mounts a card inserted after boot).
 
+## The piano as a remote control (every board)
+
+Every board **starts in Follow** with a **random song from 儿时回忆**,
+which begins as soon as the piano is connected (at once when the board's
+speaker plays the notes). From then on the piano's lowest and highest keys
+work as buttons — no screen or phone needed:
+
+| Low end (left hand) | | High end (right hand) | |
+|---|---|---|---|
+| **A0** | previous song in the folder | **D7** | Left hand |
+| **A#0** | tempo −10 % | **E7** | Both hands |
+| **B0** | next song in the folder | **F7** | Right hand |
+| **C1** | play / pause | **G7** | Learn |
+| **C#1** | tempo +10 % | **A7** | Follow |
+| **D1** | restart the song | **B7** | Listen |
+| **E1** | previous folder, random song | **C8** | bookmark the song (Tab5 / Korvo) |
+| **F1** | next folder, random song | | |
+| **G1** | random song in this folder | | |
+
+A control key works whenever nothing is playing, and during a song only if
+that song never uses the key, so a real note is never taken for a command
+(nearly all songs stay inside C1–C7). The pressed key's LED blinks once
+and the screen, if any, shows what it did; song changes open the Play
+page (small boards: the play screen). "Folders" are the folders that hold
+songs, in library order (e.g. 儿时回忆 → 红色歌谣 → … → the next artist
+folder), wrapping around at the end. The map is `piano_core::controls`.
+
 ## Small boards (minimal UI)
 
 The ESP32-1732S019 (1.9″ bar), the LILYGO T-Display-S3 (1.9″ bar,
@@ -161,10 +188,10 @@ Controls:
 | BOOT hold (0.6 s) | open / OK | back to the song menu |
 | T-Display-S3 KEY / BOOT | KEY: next row (double: 5 rows), hold OK; BOOT: previous row (double: 5 rows), hold back | KEY: pause / resume; hold BOOT: back |
 | Touch (round board, T-Display-S3 Touch) | tap a row; swipe up/down to scroll; swipe right = back | tap = pause / resume; swipe right = back |
-| Piano keys (while nothing plays) | **A0** previous, **B0** next, **C1** OK, **D1** back | when paused/finished: C1 resume, D1 back, A0 restart |
+| Piano keys | the remote control above (songs, folders, mode, hands, tempo): a new song opens the play screen | the same |
 
-The four lowest white keys steer the menus only while no song is playing
-or waiting for you, so they never interfere with a lesson.
+The small boards boot straight into the play screen with the 儿时回忆
+song. Bookmarks are kept only on the Tab5 and Korvo.
 
 **Songs**: `tools/songs.sh <board> build` packs the library (default
 `~/w/piano/midi-piano/assets/midi`) into `target/<board>/songs.bin` with
@@ -216,7 +243,7 @@ piano's LEDs.
 | KEY4 (PLAY) | play / pause | stop |
 | KEY5 (VOL+) | speaker louder | tempo +10 % |
 | KEY6 (VOL−) | speaker softer | tempo −10 % |
-| piano A0 / B0 / C1 / D1 (while nothing plays) | previous song / next song / play-pause / stop | |
+| piano keys | the remote control (see [The piano as a remote control](#the-piano-as-a-remote-control-every-board)) | |
 
 The Audio Kit's green LED is on while the piano is connected and blinks
 while the board searches for it. The last song played is remembered.
@@ -226,7 +253,7 @@ while the board searches for it. The last song played is remembered.
 | tap | play / pause |
 | double tap | next song in the folder |
 | hold (~1 s) | Learn → Follow → Listen (LED flashes white / yellow / violet) |
-| piano A0 / B0 / C1 / D1 (while nothing plays) | previous song / next song / play-pause / stop |
+| piano keys | the remote control (see [The piano as a remote control](#the-piano-as-a-remote-control-every-board)) |
 
 Its RGB LED is green while the piano is on USB, blue on Bluetooth, and
 blinks amber while it searches.
@@ -467,6 +494,19 @@ piano-core: smf · song · engine · usbmidi · blemidi · library · search ·
   codec): the BSP sets them to +3 dB over the codec's I²C control
   interface. Output is stereo (one channel per amplifier) and the synth
   runs at twice its default gain (`SYNTH_GAIN` in the board profile).
+* **Piano-key remote** (`piano_core::controls`, `player.rs`, `browse.rs`):
+  the player checks every key press against the control map — any time
+  nothing plays, mid-song only for keys the loaded song never uses (a
+  per-song table built at load) — lights the key for 600 ms, keeps the
+  press (and its release) from the engine and hands the control to the
+  UI over a channel. Each UI class applies it its own way (full UI: opens
+  the song's folder in the library and the Play page; mini: the play
+  screen; headless: the `Coach`); song and folder moves are shared in
+  `browse.rs`, which sees the card or the song pack as one folder tree
+  (next / previous song, depth-first next / previous folder holding
+  songs, random song, the 儿时回忆 boot song). Every board boots with
+  `player::boot_options()` (the saved options in Follow) and starts the
+  boot song when the piano connects.
 * **USB and BLE together** (`dual.rs`, YD-ESP32-S3): both transports
   start; a router thread sends the player's messages to USB while the
   piano is on the cable, else to BLE, and drops BLE key events while USB
@@ -596,6 +636,12 @@ USB-C OTG port (`CHMidi-2.3`, 5022:0716) and over BLE at once, Learn on
 the song carries on, plugging it back switches to USB, BOOT tap / double
 tap / hold, RGB LED colours, the web page, folder list and pinyin search
 from a PC (song pack: 2449 songs, 9.1 MB) ✔; app 2.5 MB of 4 MB.
+
+Piano-key remote (Tab5 over Bluetooth): boots into Follow with a random
+儿时回忆 song that starts when the piano connects; every control key
+(songs, folders, random, play/pause, restart, tempo, modes, hands,
+bookmark) does what the table says ✔. The other boards build with it; on
+the small and headless boards it is not yet tried on hardware.
 
 ## Known limits / ideas
 

@@ -13,8 +13,10 @@
 //! * [`sphere`] — the spinning "song globe" library view (math + pixels).
 //! * [`songpack`] — read-only song library in one flash blob (no-SD boards).
 //! * [`search`] — library-wide song search by Latin text, pinyin or initials.
+//! * [`controls`] — the piano's lowest and highest keys as a remote control.
 
 pub mod blemidi;
+pub mod controls;
 pub mod engine;
 pub mod library;
 pub mod notation;

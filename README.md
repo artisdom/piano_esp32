@@ -11,6 +11,7 @@ piano protocol (USB `GZU-tek CHMidi-2.3`, BLE `GZUT-MIDI`, BT audio
 | | |
 |---|---|
 | **Learn, Follow, Listen**<br>Learn lights the next chord on the piano and waits until you play it; Follow plays the song like Listen with the keys lit just ahead, and as soon as you join in with a hand that hand turns soft so you lead it (4 s without playing and it is loud again), scoring your timing; Listen plays the song on the piano. Practise either hand (the piano plays the other), slow down the tempo, loop a section (A–B), easy mode for small children. | ![Play page](doc/images/play.png) |
+| **The piano is the remote**<br>Every board starts in Follow with a random children's song (儿时回忆) as soon as the piano connects. The lowest and highest keys are buttons: previous / next song and folder, random song, play / pause, restart, tempo, Learn / Follow / Listen, left / both / right hand, bookmark — whenever the song doesn't need those keys. | |
 | **Sheet music, full screen**<br>A grand staff engraved from the MIDI file — clefs, key and time signatures, beams, rests, ties, accidentals — with a cursor following the music, the notes to play now in red and automatic page turns. | ![Sheet music](doc/images/sheet.png) |
 | **Colour notation for beginners**<br>Note heads in **Boomwhackers** or **Rainbow** (Chroma-Notes style) colours, optionally with note names (C D E or Do Re Mi), to see patterns, pitches and intervals at a glance. | ![Boomwhackers colours with letter names](doc/images/sheet-colours.png) |
 | | ![Rainbow colours with solfège](doc/images/sheet-rainbow.png) |
@@ -19,7 +20,7 @@ piano protocol (USB `GZU-tek CHMidi-2.3`, BLE `GZUT-MIDI`, BT audio
 | **Song globe**<br>Every song as a dot on a spinning 3D sphere, coloured by category — spin it and tap a dot to pick a song. | ![Song globe](doc/images/globe.png) |
 | **Settings**<br>USB cable or Bluetooth, notes from the piano and/or the board's speaker (built-in piano synth), sheet colours and names, learning options, LED test, brightness, shut down. | ![Settings](doc/images/settings.png) |
 | **No screen? Use your phone**<br>On the ESP32-Audio-Kit and the YD-ESP32-S3 the board opens its own Wi-Fi network; join it and a page opens to browse, search and start songs and to set mode, hands, tempo and volume. Six keys and short tones work without a phone; the board's speaker can play the notes too. | ![Phone page](doc/images/web.png) |
-| **Small boards: minimal UI**<br>A three-row wheel menu and a big "what to play next" screen for 1.9″ bars and a 1.28″ round watch-like touch screen; songs stored in flash, piano over Bluetooth; one or two keys, touch, or the piano's lowest keys as remote control. | ![Small boards](doc/images/small-boards.png) |
+| **Small boards: minimal UI**<br>A three-row wheel menu and a big "what to play next" screen for 1.9″ bars and a 1.28″ round watch-like touch screen; songs stored in flash, piano over Bluetooth; one or two keys, touch, or the piano's own keys as remote control. | ![Small boards](doc/images/small-boards.png) |
 
 ## Supported boards
 

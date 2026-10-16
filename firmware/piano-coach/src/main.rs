@@ -17,6 +17,7 @@
 mod audio;
 mod ble_midi;
 mod board;
+mod browse;
 #[cfg(all(has_usb, ui_headless))]
 mod dual;
 #[cfg(ui_full)]
@@ -115,25 +116,27 @@ fn run_app() {
 
     #[cfg(ui_full)]
     {
-        let shared = player::start(cmd_rx, key_rx, out_tx, player::saved_options(), synth, None);
+        let (ctl_tx, ctl_rx) = channel();
+        let shared = player::start(cmd_rx, key_rx, out_tx, player::boot_options(), synth, ctl_tx);
         let ctx = ui::Ctx {
             cmds: cmd_tx,
             shared,
             status,
             transport,
             sd_ok,
+            controls: ctl_rx,
         };
         spawn_ui(96 * 1024, move || ui::run(ctx));
     }
     #[cfg(ui_headless)]
     {
-        let (nav_tx, nav_rx) = channel();
-        let shared = player::start(cmd_rx, key_rx, out_tx, player::saved_options(), synth.clone(), Some(nav_tx));
+        let (ctl_tx, ctl_rx) = channel();
+        let shared = player::start(cmd_rx, key_rx, out_tx, player::boot_options(), synth.clone(), ctl_tx);
         let ctx = headless::Ctx {
             cmds: cmd_tx,
             shared,
             status,
-            nav: nav_rx,
+            controls: ctl_rx,
             synth,
             sd_ok,
         };
@@ -141,13 +144,13 @@ fn run_app() {
     }
     #[cfg(ui_mini)]
     {
-        let (nav_tx, nav_rx) = channel();
-        let shared = player::start(cmd_rx, key_rx, out_tx, player::saved_options(), synth, Some(nav_tx));
+        let (ctl_tx, ctl_rx) = channel();
+        let shared = player::start(cmd_rx, key_rx, out_tx, player::boot_options(), synth, ctl_tx);
         let ctx = ui_mini::Ctx {
             cmds: cmd_tx,
             shared,
             status,
-            nav: nav_rx,
+            controls: ctl_rx,
         };
         spawn_ui(ui_mini::STACK, move || ui_mini::run(ctx));
     }

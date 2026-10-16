@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use log::{info, warn};
+use piano_core::controls::{self, Control};
 use piano_core::engine::{Engine, Msg, Options, State, Stats, ALL_NOTES_OFF};
 use piano_core::song::{HandSel, Song, Step, KEY_HI, KEY_LO};
 
@@ -18,13 +19,8 @@ use crate::prefs;
 /// The speaker synth shared with the audio thread (boards with a speaker).
 pub type SharedSynth = Arc<Mutex<piano_core::synth::Synth>>;
 
-/// Piano keys that steer the small boards' menus while no song is playing:
-/// the four lowest white keys, A0 ◀, B0 ▶, C1 OK, D1 back.
-pub const NAV_PREV: u8 = 21;
-pub const NAV_NEXT: u8 = 23;
-pub const NAV_OK: u8 = 24;
-pub const NAV_BACK: u8 = 26;
-const NAV_KEYS: [u8; 4] = [NAV_PREV, NAV_NEXT, NAV_OK, NAV_BACK];
+/// How long a control key's LED stays lit after a press (feedback).
+const CONTROL_FLASH: Duration = Duration::from_millis(600);
 
 /// Where played notes sound (Settings → "Notes sound from").
 pub static SOUND: AtomicU8 = AtomicU8::new(SOUND_PIANO);
@@ -109,7 +105,7 @@ pub fn start(
     out: Sender<Msg>,
     initial: Options,
     synth: Option<SharedSynth>,
-    nav: Option<Sender<u8>>,
+    controls: Sender<Control>,
 ) -> Shared {
     let shared: Shared = Arc::new(Mutex::new(Snapshot {
         opts: initial,
@@ -120,7 +116,7 @@ pub fn start(
     }));
     let sh = shared.clone();
     // The player never writes flash: its stack may live in PSRAM.
-    crate::threads::spawn_ext("player", 12 * 1024, move || run(cmds, keys, out, sh, initial, synth, nav))
+    crate::threads::spawn_ext("player", 12 * 1024, move || run(cmds, keys, out, sh, initial, synth, controls))
         .expect("spawn player");
     shared
 }
@@ -132,7 +128,7 @@ fn run(
     sh: Shared,
     initial: Options,
     synth: Option<SharedSynth>,
-    nav: Option<Sender<u8>>,
+    controls: Sender<Control>,
 ) {
     let t0 = Instant::now();
     let now_ms = || t0.elapsed().as_millis() as u64;
@@ -146,6 +142,12 @@ fn run(
     let mut rev = 0u64;
     let mut last_publish = Instant::now();
     let mut dirty = true;
+    // Keys the loaded song plays (they are notes, not controls, mid-song).
+    let mut used: Option<[bool; 128]> = None;
+    // Control keys pressed: their LED goes off at the deadline; their
+    // release is not passed on.
+    let mut flashes: Vec<(u8, Instant)> = Vec::new();
+    let mut held = [false; 128];
 
     loop {
         while let Ok(c) = cmds.try_recv() {
@@ -157,6 +159,7 @@ fn run(
                     }
                     // Free the old song before parsing the next (small RAM).
                     drop(engine.take());
+                    used = None;
                     set_loaded(&sh, None, None, None);
                     match crate::songs::read(&path)
                         .and_then(|b| Song::parse(&b).map_err(|e| e.to_string()))
@@ -167,6 +170,7 @@ fn run(
                         }
                         Ok(song) => {
                             let song = Arc::new(song);
+                            used = Some(controls::used_keys(&song));
                             engine = Some(Engine::new(song.clone(), opts));
                             info!(
                                 "loaded {} — {} notes, {} tracks, {:.0} bpm, split {:?}; heap free {} KB",
@@ -260,6 +264,17 @@ fn run(
                 }
             }
         }
+        let now = Instant::now();
+        flashes.retain(|&(key, until)| {
+            if now < until {
+                return true;
+            }
+            // Unless the song has lit it meanwhile.
+            if !engine.as_ref().is_some_and(|e| e.led(key)) {
+                buf.push([0x80, key, 0]);
+            }
+            false
+        });
         if led_test_until.is_some_and(|t| Instant::now() >= t) {
             led_test_until = None;
             buf.push(ALL_NOTES_OFF);
@@ -267,13 +282,26 @@ fn run(
 
         while let Ok(k) = keys.try_recv() {
             dirty = true;
-            // Menu keys: only while nothing is being played.
-            let idle = !engine.as_ref().is_some_and(|e| matches!(e.state(), State::Playing | State::Waiting));
-            if let (Some(nav), KeyEvent::Down { key, .. }) = (nav.as_ref(), k) {
-                if idle && NAV_KEYS.contains(&key) {
-                    let _ = nav.send(key);
+            // Control keys (piano_core::controls): any time nothing plays,
+            // mid-song only those the song never uses.
+            let busy = engine.as_ref().is_some_and(|e| matches!(e.state(), State::Playing | State::Waiting));
+            match k {
+                KeyEvent::Down { key, .. } => {
+                    if let Some(c) = controls::press(key, busy, used.as_ref()) {
+                        info!("control: {} ({})", controls::label(c), piano_core::song::key_name(key));
+                        let _ = controls.send(c);
+                        held[key as usize & 127] = true;
+                        buf.push([0x90, key, 1]);
+                        flashes.retain(|f| f.0 != key);
+                        flashes.push((key, Instant::now() + CONTROL_FLASH));
+                        continue;
+                    }
+                }
+                KeyEvent::Up { key } if held[key as usize & 127] => {
+                    held[key as usize & 127] = false;
                     continue;
                 }
+                _ => {}
             }
             match k {
                 KeyEvent::Down { key, .. } => {
@@ -351,6 +379,15 @@ fn set_loaded(sh: &Shared, song: Option<Arc<Song>>, path: Option<PathBuf>, err: 
     s.path = path;
     s.load_error = err;
     s.rev += 1;
+}
+
+/// The options a board boots with: the saved ones, in Follow mode (every
+/// boot starts a song in Follow, see browse::start_song).
+pub fn boot_options() -> Options {
+    Options {
+        mode: piano_core::engine::Mode::Follow,
+        ..saved_options()
+    }
 }
 
 /// The engine options saved in NVS (Play page and Settings).
