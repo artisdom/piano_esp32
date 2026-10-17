@@ -2,7 +2,8 @@
 
 Notes for AI agents (and humans) picking up this project. Read this first,
 then `README.md`, `doc/piano_coach_firmware.md` (user guide, build, architecture,
-hardware results) and `firmware/piano-coach/boards/README.md` (porting guide).
+hardware results), `firmware/piano-coach/boards/README.md` (porting guide)
+and, before touching a board's hardware, its `doc/boards/<board>.md`.
 
 ## What this is
 
@@ -21,8 +22,11 @@ LEDs show what to play next. Plus the reverse-engineered piano protocol.
 * `firmware/piano-coach/` — the ESP-IDF application (esp-idf-svc/hal/sys,
   vendored copies in `vendor/` from the sibling "herdline" project, Slint UI).
 * `doc/` — `GZUT_piano_protocol.md` (protocol), `piano_coach_firmware.md`
-  (the main firmware document), `test_log_2026-10-15.md` (raw captures),
-  `images/` (README screenshots, rendered on the PC).
+  (the main firmware document), `boards/` (one hardware reference per dev
+  kit: pin maps, parts, quirks; schematics in `boards/vendor/`),
+  `test_log_2026-10-15.md` (raw captures), `images/` (README screenshots,
+  rendered on the PC), vendor folders for the Tab5 and the two Sunton
+  boards.
 * Sibling repos: **`../piano-coach`** — the Android (Kotlin/Compose) port of
   the same app (`core/` mirrors piano-core: Engine.kt, Controls.kt, …;
   `Coach.kt` is the app); **`../midi-piano/assets/midi`** — the song
@@ -43,7 +47,8 @@ LEDs show what to play next. Plus the reverse-engineered piano protocol.
 * **Only one BLE connection at a time.** If the Tab5 holds it, a tablet or
   another board cannot connect — power the others off or use USB.
 * After connecting, the piano renegotiates the BLE link to 10 ms interval /
-  500 ms supervision; boards with Wi-Fi ask again for 30–50 ms / 4 s
+  500 ms supervision; headless boards and the original-ESP32 boards
+  (`cfg(ble_relaxed)`) ask again for 30–50 ms / 10 s supervision
   (`ble_midi.rs` `relax_link`), else Wi-Fi starves.
 * Panel SysEx from the piano: `F0 52 4B pp vv 00 00 F7` (volume, metronome…).
 

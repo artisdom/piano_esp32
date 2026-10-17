@@ -278,7 +278,7 @@ while the board searches for it. The last song played is remembered.
 |---|---|
 | tap | play / pause |
 | double tap | next song in the folder |
-| hold (~1 s) | Learn → Follow → Listen (LED flashes white / yellow / violet) |
+| hold (0.6 s) | Learn → Follow → Listen (LED flashes white / yellow / violet) |
 | piano keys | the remote control (see [The piano as a remote control](#the-piano-as-a-remote-control-every-board)) |
 
 Its RGB LED is green while the piano is on USB, blue on Bluetooth, and
@@ -410,7 +410,7 @@ piano-core: smf · song · engine · usbmidi · blemidi · library · search ·
             progress · synth · sphere
 ```
 
-* **Board** (`board.rs`, BSP in `components/m5stack_tab5_noglib`, vendored
+* **Board** (`src/board/tab5/mod.rs`, BSP in `components/m5stack_tab5_noglib`, vendored
   from herdline): I2C bus recovery, both PI4IOE5V6408 expanders
   programmed explicitly, display power-cycle, MIPI-DSI panel + touch.
   The BSP probes the touch controller: ST7123 integrated
@@ -516,7 +516,7 @@ piano-core: smf · song · engine · usbmidi · blemidi · library · search ·
   everything running. Radio sharing: preferring BT starved Wi-Fi (8 s
   page loads); instead the piano's own renegotiation to a 10 ms interval
   with a 500 ms supervision timeout is answered with a request for
-  30–50 ms and 4 s — page requests then take 0.1–0.4 s and the link
+  30–50 ms and a 10 s supervision timeout — page requests then take 0.1–0.4 s and the link
   rides out busy moments. The ES8388 and the 1-bit SD card come up in a
   small C component (`components/audiokit_bsp`). The speaker amplifiers
   hang on the ES8388's LOUT2/ROUT2, which esp_codec_dev leaves at −30 dB
@@ -601,9 +601,10 @@ piano-core: smf · song · engine · usbmidi · blemidi · library · search ·
   went from a 99 KB to a 34 KB peak.
 * Release builds use `opt-level = 3` for piano-core, the firmware and
   Slint's software renderer (`"s"` elsewhere): the globe's projection/sort
-  went from 15 to 4.5 ms. Image ≈ 7.6 MB of the 12 MB partition.
+  went from 15 to 4.5 ms. Tab5 image ≈ 8.1 MB of the 12 MB partition
+  (2026-10-16).
 * `CONFIG_FREERTOS_HZ=1000` for ms-accurate timing; PSRAM XIP; 12 MB app
-  partition (image ≈ 4.9 MB).
+  partition.
 
 ## Verified on hardware (2026-10-15)
 

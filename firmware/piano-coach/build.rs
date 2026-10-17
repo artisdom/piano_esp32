@@ -118,7 +118,7 @@ fn main() {
     for h in &b.has {
         println!("cargo:rustc-cfg=has_{h}");
     }
-    // A BLE link to the piano at 30–50 ms / 4 s instead of the piano's own
+    // A BLE link to the piano at 30–50 ms / 10 s instead of the piano's own
     // 10 ms / 500 ms: boards sharing the radio with Wi-Fi (headless) and the
     // original ESP32's controller, which drops the 10 ms link under load
     // (ESP32-2432S028). See ble_midi.rs `relax_link`.

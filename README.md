@@ -47,6 +47,10 @@ with the firmware's own UI code, fonts and engraver from the real song library.
   using it, building and flashing every board, architecture, what was
   verified on hardware (`firmware/piano-coach`, `firmware/piano-core`;
   porting guide in [firmware/piano-coach/boards/README.md](firmware/piano-coach/boards/README.md)).
+* [doc/boards/](doc/boards/README.md) — hardware reference for every
+  dev kit: parts, pin maps, display/touch/audio/USB details, partitions,
+  flashing and console, verified status and bench quirks, with the
+  boards' schematics in `doc/boards/vendor/`.
 * [doc/GZUT_piano_protocol.md](doc/GZUT_piano_protocol.md) — USB and BLE
   MIDI protocol, LED control, vendor SysEx, BLE packet quirks, recipes
   for Linux/Python/ESP32.

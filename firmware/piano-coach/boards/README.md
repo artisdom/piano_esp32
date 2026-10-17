@@ -40,6 +40,8 @@ profile directory). A bare `cargo build` builds the Tab5 (defaults in
 
 ## Supported boards
 
+Hardware reference for each board (pins, parts, quirks): `doc/boards/`.
+
 | Board | Directory | MCU | ESP-IDF | Display | MIDI transports |
 |---|---|---|---|---|---|
 | M5Stack Tab5 | `tab5` | ESP32-P4 | v5.5.3 | 1280×720 MIPI-DSI, rotated 270°, scale 1 | USB-A host; BLE via ESP32-C6 (ESP-Hosted) |
@@ -49,6 +51,7 @@ profile directory). A bare `cargo build` builds the Tab5 (defaults in
 | ESP-WROVER-KIT v4.1 | `wroverkit` | ESP32 (Xtensa) | v5.5.3 | 3.2″ 320×240 ILI9341 / ST7789V SPI (ID probe), minimal UI at 1.25× | native BLE |
 | Ai-Thinker ESP32-Audio-Kit | `audiokit` | ESP32 (Xtensa) | v5.5.3 | none: headless (keys, tones, Wi-Fi web page) | native BLE |
 | LILYGO T-Display-S3 | `tdisplays3` | ESP32-S3 (Xtensa) | v5.5.3 | 1.9″ 320×170 ST7789 on an 8-bit i80 bus, minimal UI, two keys, optional CST816 touch | native BLE |
+| ESP32-2432S028R (CYD) | `2432s028` | ESP32 (Xtensa) | v5.5.3 | 2.8″ 320×240 ILI9341-class SPI, minimal UI, XPT2046 resistive touch (bit-banged) | native BLE |
 | VCC-GND YD-ESP32-S3 | `yds3` | ESP32-S3 (Xtensa) | v5.5.3 | none: headless (BOOT key, WS2812, Wi-Fi web page), songs in flash | USB-C OTG host (FS) and native BLE together |
 
 ## Porting a new board — checklist
